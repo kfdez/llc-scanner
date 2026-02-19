@@ -1,0 +1,9 @@
+# Python installer binary (large — download separately from python.org)
+redist/
+
+# PyInstaller build artifacts
+dist/
+launcher.exe
+launcher.spec
+__pycache__/
+*.pyc
