@@ -1,0 +1,42 @@
+# ── Sensitive / local config ──────────────────────────────────────────────────
+settings.json          # contains API keys, eBay credentials, data dir path
+
+# ── Database & downloaded data ────────────────────────────────────────────────
+data/                  # cards.db + downloaded card images (large, machine-local)
+
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+
+# ── Build / packaging ─────────────────────────────────────────────────────────
+build/
+dist/
+*.egg-info/
+*.egg
+
+# ── IDE / editor ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ── OS noise ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Claude Code local settings ────────────────────────────────────────────────
+.claude/
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+nul
+*.log

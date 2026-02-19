@@ -1,0 +1,16 @@
+requests>=2.31.0
+tqdm>=4.66.0
+Pillow>=10.0.0
+opencv-python>=4.8.0
+imagehash>=4.3.1
+numpy>=1.24.0
+tcgdex-sdk>=2.2.1
+
+# ML embedding matcher (EfficientNet-B0 via timm + FAISS nearest-neighbour search)
+# NOTE: torch from PyPI is CPU-only. For CUDA (RTX 3070), install the CUDA wheel:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+torch>=2.0.0
+timm>=0.9.0
+# faiss-gpu (optional, for GPU-accelerated index search — separate install):
+#   pip install faiss-gpu-cu12
+faiss-cpu>=1.7.4
