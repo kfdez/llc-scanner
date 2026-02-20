@@ -157,6 +157,8 @@ def _show_error_and_close(window: SetupWindow, title: str, message: str):
 
 def _run_setup(window: SetupWindow):
     """Run in a background thread: create venv + pip install."""
+    # Ensure all subprocesses run in UTF-8 mode
+    os.environ["PYTHONUTF8"] = "1"
     try:
         python_cmd = _find_system_python()
         if python_cmd is None:
@@ -242,17 +244,20 @@ def _launch_app_and_close(window: SetupWindow):
 
 def _launch_app():
     """Start main.py using the venv Python via pythonw.exe (no console window)."""
-    # Use pythonw.exe instead of python.exe — it's the windowless variant
-    # that ships with every Python install and doesn't need any special flags.
-    # DETACHED_PROCESS can cause the child to lose its session on some Windows
-    # configs, preventing the Tkinter window from appearing.
+    # Use pythonw.exe — the windowless variant that ships with every Python install.
     pythonw = VENV_PYTHON.parent / "pythonw.exe"
     python_cmd = pythonw if pythonw.exists() else VENV_PYTHON
+
+    # Force UTF-8 mode so Unicode characters in the app's UI strings (arrows,
+    # emoji, box-drawing chars, en-dashes, etc.) don't crash Tkinter on Windows
+    # systems with a cp1252 default locale (most English Windows installs).
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
 
     subprocess.Popen(
         [str(python_cmd), str(MAIN_PY)],
         cwd=str(APP_DIR),
-        # No creationflags — let Windows handle session inheritance normally
+        env=env,
     )
 
 
