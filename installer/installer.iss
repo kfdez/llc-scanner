@@ -80,12 +80,35 @@ Type: filesandordirs; Name: "{app}\.venv"
 
 [Code]
 // Returns True if we need to install Python 3.11 (i.e. no Python 3.11+ found).
-// Checks PATH candidates and known per-user install locations for 3.11-3.15.
+// Checks known standard install locations for Python 3.11-3.15:
+//   - Per-user:    %LocalAppData%\Programs\Python\Python3XX\python.exe
+//   - System-wide: %ProgramFiles%\Python\Python3XX\python.exe
+//   - System-wide: %ProgramFiles%\Python3XX\python.exe  (alternate layout)
+//   - Launcher:    %LocalAppData%\Programs\Python\Launcher\py.exe
+// The runtime launcher (launcher.exe) also checks PATH at first launch,
+// so any Python on PATH (winget, Store, scoop, custom) will be used then.
 function NeedsPython311(): Boolean;
 var
   Minor: Integer;
   PythonExe: String;
+  PyLauncher: String;
 begin
+  // Check for the Python Launcher (py.exe) — present when any Python is
+  // installed via the official installer regardless of PATH setting.
+  PyLauncher := ExpandConstant('{localappdata}') + '\Programs\Python\Launcher\py.exe';
+  if FileExists(PyLauncher) then
+  begin
+    Result := False;
+    Exit;
+  end;
+  // Also check the system-wide launcher location
+  PyLauncher := ExpandConstant('{pf}') + '\Python\Launcher\py.exe';
+  if FileExists(PyLauncher) then
+  begin
+    Result := False;
+    Exit;
+  end;
+
   // Check known per-user Python install locations (3.11 through 3.15)
   for Minor := 11 to 15 do
   begin
@@ -98,10 +121,17 @@ begin
     end;
   end;
 
-  // Check system-wide Python install locations (3.11 through 3.15)
+  // Check system-wide Python install locations — two common layouts
   for Minor := 11 to 15 do
   begin
     PythonExe := ExpandConstant('{pf}') + '\Python\Python3'
+                 + IntToStr(Minor) + '\python.exe';
+    if FileExists(PythonExe) then
+    begin
+      Result := False;
+      Exit;
+    end;
+    PythonExe := ExpandConstant('{pf}') + '\Python3'
                  + IntToStr(Minor) + '\python.exe';
     if FileExists(PythonExe) then
     begin
