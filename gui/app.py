@@ -104,6 +104,11 @@ class CardIdentifierApp(tk.Tk):
         # Header cell frames keyed by column name — populated in _build_batch_tab
         self._hdr_cells: dict[str, tk.Frame] = {}
 
+        # Flush pending geometry/theme events before attaching the menu.
+        # Without this, Tk 8.6 on Windows 11 (Python 3.13) creates the native
+        # menu bar at zero height when the window bg is a dark colour, so the
+        # menu is invisible even though self.config(menu=...) succeeds.
+        self.update_idletasks()
         self._build_menu()
         self._build_ui()
         self._check_first_run()
@@ -138,6 +143,20 @@ class CardIdentifierApp(tk.Tk):
         menubar.add_cascade(label="Help", menu=help_menu)
 
         self.config(menu=menubar)
+        # Keep a reference so _reattach_menu() can re-apply it after the
+        # event loop starts (belt-and-suspenders for the Tk/Win11 timing bug).
+        self._menubar = menubar
+        self.after(1, self._reattach_menu)
+
+    def _reattach_menu(self):
+        """Re-apply the menu bar once the event loop is running.
+
+        On Python 3.13 + Windows 11, self.config(menu=...) called inside
+        __init__ (before mainloop) sometimes produces a zero-height native
+        menu bar. Reattaching after the first event-loop tick forces Windows
+        to resize the frame and show the menu correctly.
+        """
+        self.config(menu=self._menubar)
 
     # ------------------------------------------------------------------
     # UI layout
