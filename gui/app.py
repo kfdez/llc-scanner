@@ -1210,7 +1210,7 @@ class CardIdentifierApp(tk.Tk):
 
             # ── HTML / Preview toggle (right side of toolbar) ──
             _mode = ["html"]  # "html" or "preview"
-            toggle_btn = tk.Button(toolbar_f, text="⬜ Preview",
+            toggle_btn = tk.Button(toolbar_f, text="[ ] Preview",
                                    bg="#0d0d1a", fg="#aaaacc", relief="flat",
                                    font=("Helvetica", 9), cursor="hand2",
                                    activebackground="#1a1a2e", padx=8, pady=3)
@@ -1255,7 +1255,7 @@ class CardIdentifierApp(tk.Tk):
                 if _mode[0] == "html":
                     # Switch to preview
                     _mode[0] = "preview"
-                    toggle_btn.config(text="✏ Edit HTML")
+                    toggle_btn.config(text="< Edit HTML")
                     # Render current text into preview
                     if _html_widget[0]:
                         _html_widget[0].load_html(txt.get("1.0", "end-1c"))
@@ -1264,7 +1264,7 @@ class CardIdentifierApp(tk.Tk):
                 else:
                     # Switch back to editor
                     _mode[0] = "html"
-                    toggle_btn.config(text="⬜ Preview")
+                    toggle_btn.config(text="[ ] Preview")
                     preview_frame.grid_remove()
                     txt_frame.grid()
                     txt.focus_set()
@@ -1354,7 +1354,7 @@ class CardIdentifierApp(tk.Tk):
         # ── TCGdex link button ──
         link_cell = _named_cell("link")
         url = top.get("image_url", "") if top else ""
-        link_btn = _bind_mw(tk.Button(link_cell, text="🔗",
+        link_btn = _bind_mw(tk.Button(link_cell, text="[link]",
                                        command=lambda u=url: webbrowser.open(u) if u else None,
                                        bg=bg, fg="#5599ff", relief="flat",
                                        font=("Helvetica", 12), cursor="hand2",
@@ -1370,16 +1370,16 @@ class CardIdentifierApp(tk.Tk):
                        font=("Helvetica", 10), cursor="hand2",
                        activebackground="#533483", padx=5, pady=3)
 
-        _bind_mw(tk.Button(action_frame, text="◀",
+        _bind_mw(tk.Button(action_frame, text="<",
                             command=lambda r=row: self._cycle_match(r, -1),
                             **abtn_kw)).pack(side="left", padx=(0, 2))
-        _bind_mw(tk.Button(action_frame, text="▶",
+        _bind_mw(tk.Button(action_frame, text=">",
                             command=lambda r=row: self._cycle_match(r, +1),
                             **abtn_kw)).pack(side="left", padx=(0, 2))
-        _bind_mw(tk.Button(action_frame, text="🔍",
+        _bind_mw(tk.Button(action_frame, text="?",
                             command=lambda r=row: self._open_search_dialog(r),
                             **abtn_kw)).pack(side="left", padx=(0, 2))
-        _bind_mw(tk.Button(action_frame, text="✕",
+        _bind_mw(tk.Button(action_frame, text="X",
                             command=lambda r=row, f=frame: self._delete_row(r, f),
                             bg="#3a1a1a", fg="#ff6666", relief="flat",
                             font=("Helvetica", 10), cursor="hand2",
@@ -2151,7 +2151,7 @@ LLC Scanner  v1-beta  •  © 2026 Kyle Fernandez  •  LowLatencyCards
         # import webbrowser; webbrowser.open("https://paypal.me/LowLatencyCards")
         messagebox.showinfo(
             "Support Development",
-            "Thank you for considering a donation! ☕\n\n"
+            "Thank you for considering a donation!\n\n"
             "Donation link coming soon.\n"
             "— LowLatencyCards",
         )

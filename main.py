@@ -130,4 +130,12 @@ if __name__ == "__main__":
         run_identify(path, matcher)
 
     else:
-        run_gui()
+        try:
+            run_gui()
+        except Exception:
+            import traceback, pathlib, datetime
+            log_path = pathlib.Path.home() / "Desktop" / "LLC-Scanner-Error.txt"
+            with open(log_path, "a", encoding="utf-8") as fh:
+                fh.write(f"\n{'='*60}\n{datetime.datetime.now()}\n")
+                traceback.print_exc(file=fh)
+            raise

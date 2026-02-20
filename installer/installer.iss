@@ -37,7 +37,8 @@ ArchitecturesInstallIn64BitMode=x64
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "installpython"; Description: "Install Python 3.11 (uncheck if you already have Python 3.11 or newer)"; GroupDescription: "Prerequisites:"; Flags: checkedonce
+Name: "desktopicon";   Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
 ; Python 3.11 installer — extracted to temp, deleted after install
@@ -61,13 +62,12 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename
 Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\gui\assets\logo.ico"; Tasks: desktopicon
 
 [Run]
-; 1. Install Python 3.11 silently (per-user, no PATH modification)
-;    Skipped if the user already has Python 3.11+ of any version (3.11, 3.12, 3.13...)
-;    The Check function below handles version detection.
+; 1. Install Python 3.11 silently — only if the user left the checkbox ticked.
+;    Users who already have Python 3.11+ can uncheck this during setup.
 Filename: "{tmp}\python-3.11.9-amd64.exe"; \
     Parameters: "/quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_test=0"; \
     StatusMsg: "Installing Python 3.11 (this only happens once)..."; \
-    Check: NeedsPython311
+    Tasks: installpython
 
 ; 2. Run launcher on finish (optional checkbox)
 Filename: "{app}\{#AppExeName}"; \
@@ -79,71 +79,6 @@ Filename: "{app}\{#AppExeName}"; \
 Type: filesandordirs; Name: "{app}\.venv"
 
 [Code]
-// Returns True if we need to install Python 3.11 (i.e. no Python 3.11+ found).
-// Checks known standard install locations for Python 3.11-3.15:
-//   - Per-user:    %LocalAppData%\Programs\Python\Python3XX\python.exe
-//   - System-wide: %ProgramFiles%\Python\Python3XX\python.exe
-//   - System-wide: %ProgramFiles%\Python3XX\python.exe  (alternate layout)
-//   - Launcher:    %LocalAppData%\Programs\Python\Launcher\py.exe
-// The runtime launcher (launcher.exe) also checks PATH at first launch,
-// so any Python on PATH (winget, Store, scoop, custom) will be used then.
-function NeedsPython311(): Boolean;
-var
-  Minor: Integer;
-  PythonExe: String;
-  PyLauncher: String;
-begin
-  // Check for the Python Launcher (py.exe) — present when any Python is
-  // installed via the official installer regardless of PATH setting.
-  PyLauncher := ExpandConstant('{localappdata}') + '\Programs\Python\Launcher\py.exe';
-  if FileExists(PyLauncher) then
-  begin
-    Result := False;
-    Exit;
-  end;
-  // Also check the system-wide launcher location
-  PyLauncher := ExpandConstant('{pf}') + '\Python\Launcher\py.exe';
-  if FileExists(PyLauncher) then
-  begin
-    Result := False;
-    Exit;
-  end;
-
-  // Check known per-user Python install locations (3.11 through 3.15)
-  for Minor := 11 to 15 do
-  begin
-    PythonExe := ExpandConstant('{localappdata}') + '\Programs\Python\Python3'
-                 + IntToStr(Minor) + '\python.exe';
-    if FileExists(PythonExe) then
-    begin
-      Result := False;
-      Exit;
-    end;
-  end;
-
-  // Check system-wide Python install locations — two common layouts
-  for Minor := 11 to 15 do
-  begin
-    PythonExe := ExpandConstant('{pf}') + '\Python\Python3'
-                 + IntToStr(Minor) + '\python.exe';
-    if FileExists(PythonExe) then
-    begin
-      Result := False;
-      Exit;
-    end;
-    PythonExe := ExpandConstant('{pf}') + '\Python3'
-                 + IntToStr(Minor) + '\python.exe';
-    if FileExists(PythonExe) then
-    begin
-      Result := False;
-      Exit;
-    end;
-  end;
-
-  // No suitable Python found — install bundled Python 3.11
-  Result := True;
-end;
-
 // Show a friendly note about the first-run dependency download
 procedure InitializeWizard();
 var
