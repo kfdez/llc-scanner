@@ -128,6 +128,7 @@ class CardIdentifierApp(tk.Tk):
         setup_menu.add_command(label="Rebuild Embeddings (ML, GPU)", command=self._run_rebuild_embeddings)
         setup_menu.add_separator()
         setup_menu.add_command(label="Change Data Directory...", command=self._change_data_dir)
+        setup_menu.add_command(label="Relink Images from Folder...", command=self._relink_images)
         menubar.add_cascade(label="Setup", menu=setup_menu)
 
         export_menu = tk.Menu(menubar, tearoff=0)
@@ -1862,6 +1863,125 @@ class CardIdentifierApp(tk.Tk):
             f"Data directory set to:\n{new_dir}\n\n"
             "Your existing database and images are NOT moved automatically.",
         )
+
+    def _relink_images(self):
+        """Let the user point to a folder of images and bulk-update local_image_path in the DB."""
+        import config
+        chosen = filedialog.askdirectory(
+            title="Select folder containing card images (e.g. data/images)",
+            initialdir=str(config.IMAGES_DIR) if config.IMAGES_DIR.exists() else str(config.DATA_DIR),
+        )
+        if not chosen:
+            return
+
+        folder = Path(chosen)
+
+        # Progress window
+        win = tk.Toplevel(self)
+        win.title("Relinking Images")
+        win.resizable(False, False)
+        win.configure(bg="#1a1a2e")
+        win.grab_set()
+
+        tk.Label(win, text="Scanning folder and updating image paths...",
+                 bg="#1a1a2e", fg="white", font=("Helvetica", 11)).pack(padx=20, pady=(16, 6))
+
+        log_var = tk.StringVar(value="Scanning...")
+        tk.Label(win, textvariable=log_var, bg="#1a1a2e", fg="#a0a0b0",
+                 font=("Helvetica", 9), wraplength=380).pack(padx=20, pady=4)
+
+        bar = ttk.Progressbar(win, mode="indeterminate", length=380)
+        bar.pack(padx=20, pady=8)
+        bar.start(12)
+
+        close_btn = tk.Button(win, text="Close", state="disabled", bg="#0f3460", fg="white",
+                              relief="flat", padx=12, pady=6, command=win.destroy)
+        close_btn.pack(pady=(4, 16))
+
+        rehash_var = tk.BooleanVar(value=True)
+        rehash_chk = tk.Checkbutton(win, text="Rehash all cards after relinking",
+                                    variable=rehash_var, bg="#1a1a2e", fg="#a0a0b0",
+                                    selectcolor="#0f3460", activebackground="#1a1a2e",
+                                    state="disabled")
+        rehash_chk.pack(pady=(0, 12))
+
+        def worker():
+            try:
+                from db.database import relink_images_from_folder
+                matched, total = relink_images_from_folder(folder)
+                self.after(0, lambda: log_var.set(
+                    f"Done. {matched:,} cards relinked from {total:,} image files found."
+                ))
+                self.after(0, self._update_db_info)
+                self.after(0, lambda: bar.stop())
+                self.after(0, lambda: close_btn.config(state="normal"))
+                self.after(0, lambda: rehash_chk.config(state="normal"))
+
+                if matched == 0:
+                    self.after(0, lambda: log_var.set(
+                        f"No matches found in {total:,} files. "
+                        "Make sure filenames match card IDs (e.g. swsh1-1.png)."
+                    ))
+                    return
+
+                # Auto-trigger rehash if checkbox was checked when worker finishes
+                def _maybe_rehash():
+                    if rehash_var.get():
+                        win.destroy()
+                        self._run_rehash_silent()
+
+                self.after(500, _maybe_rehash)
+
+            except Exception as e:
+                self.after(0, lambda: log_var.set(f"Error: {e}"))
+                self.after(0, lambda: bar.stop())
+                self.after(0, lambda: close_btn.config(state="normal"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_rehash_silent(self):
+        """Run a full rehash without the confirmation dialog (called automatically after relink)."""
+        win = tk.Toplevel(self)
+        win.title("Rehashing Cards")
+        win.resizable(False, False)
+        win.configure(bg="#1a1a2e")
+        win.grab_set()
+
+        tk.Label(win, text="Recomputing perceptual hashes...", bg="#1a1a2e", fg="white",
+                 font=("Helvetica", 11)).pack(padx=20, pady=(16, 6))
+
+        log_var = tk.StringVar(value="Clearing old hashes...")
+        tk.Label(win, textvariable=log_var, bg="#1a1a2e", fg="#a0a0b0",
+                 font=("Helvetica", 9), wraplength=380).pack(padx=20, pady=4)
+
+        bar = ttk.Progressbar(win, mode="indeterminate", length=380)
+        bar.pack(padx=20, pady=8)
+        bar.start(12)
+
+        close_btn = tk.Button(win, text="Close", state="disabled", bg="#0f3460", fg="white",
+                              relief="flat", padx=12, pady=6, command=win.destroy)
+        close_btn.pack(pady=(4, 16))
+
+        def progress(msg: str):
+            self.after(0, lambda: log_var.set(msg))
+
+        def worker():
+            from db.database import clear_all_hashes
+            from cards.hasher import compute_all_hashes
+            try:
+                clear_all_hashes()
+                progress("Old hashes cleared. Computing new hashes...")
+                compute_all_hashes(progress_callback=progress)
+                reload_index()
+                self.after(0, self._update_db_info)
+                self.after(0, lambda: progress("Rehash complete!"))
+            except Exception as e:
+                self.after(0, lambda: progress(f"Error: {e}"))
+            finally:
+                self.after(0, lambda: bar.stop())
+                self.after(0, lambda: close_btn.config(state="normal"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ------------------------------------------------------------------
     # eBay export

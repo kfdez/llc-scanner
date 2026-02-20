@@ -194,6 +194,39 @@ def update_local_image_path(card_id: str, path: str):
         )
 
 
+def relink_images_from_folder(folder: Path) -> tuple[int, int]:
+    """Scan *folder* for image files and update local_image_path for matching cards.
+
+    Matching is done by filename stem == card id (e.g. ``swsh1-1.png`` → card id ``swsh1-1``).
+
+    Returns (matched, total_files) where matched is how many DB rows were updated.
+    """
+    image_extensions = {".png", ".jpg", ".jpeg", ".webp"}
+    files = [p for p in folder.iterdir() if p.suffix.lower() in image_extensions]
+
+    if not files:
+        return 0, 0
+
+    # Build stem → absolute path map
+    stem_to_path = {p.stem: str(p) for p in files}
+
+    with get_connection() as conn:
+        # Fetch all card ids in one query so we can do the matching in Python
+        rows = conn.execute("SELECT id FROM cards").fetchall()
+        updates = [
+            (stem_to_path[row["id"]], row["id"])
+            for row in rows
+            if row["id"] in stem_to_path
+        ]
+        if updates:
+            conn.executemany(
+                "UPDATE cards SET local_image_path = ? WHERE id = ?",
+                updates,
+            )
+
+    return len(updates), len(files)
+
+
 # ── ML Embedding functions ────────────────────────────────────────────────────
 
 def embedding_count() -> int:
