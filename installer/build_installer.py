@@ -120,6 +120,17 @@ def build_launcher():
 
     icon_arg = str(ICON_ICO) if ICON_ICO.exists() else "NONE"
 
+    # Bundle logo assets so the setup window can show the logo image and favicon.
+    # At runtime they are extracted to sys._MEIPASS by PyInstaller.
+    # Only logo_white.png and logo.ico are needed by the launcher itself.
+    assets_dir = PROJECT_DIR / "gui" / "assets"
+    add_data_args = []
+    for asset in ("logo_white.png", "logo.ico"):
+        src = assets_dir / asset
+        if src.exists():
+            # --add-data src;dest  (dest is relative inside _MEIPASS)
+            add_data_args += ["--add-data", f"{src};assets"]
+
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
@@ -129,6 +140,7 @@ def build_launcher():
         "--workpath", str(DIST_DIR / "pyinstaller_build"),
         "--specpath", str(DIST_DIR),
         "--icon", icon_arg,
+        *add_data_args,
         str(LAUNCHER_PY),
     ]
 

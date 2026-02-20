@@ -52,13 +52,40 @@ def _needs_setup() -> bool:
 class SetupWindow(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("LLC Scanner — First-Time Setup")
+        self.title("LLC Scanner - First-Time Setup")
         self.resizable(False, False)
         self.configure(bg="#1a1a2e")
 
-        # Centre on screen
+        # ── Icons (favicon + logo image) ──────────────────────────────────────
+        # Assets are bundled into the PyInstaller _MEIPASS temp folder.
+        _assets = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "assets"
+
+        # Favicon / taskbar icon
+        try:
+            _ico = _assets / "logo.ico"
+            if _ico.exists():
+                self.iconbitmap(default=str(_ico))
+        except Exception:
+            pass
+
+        # Logo image displayed above the title text.
+        # Use tk.PhotoImage directly (supports PNG natively in Tk 8.6+)
+        # so we don't need Pillow bundled into the launcher exe.
+        self._logo_photo = None  # keep reference to prevent GC
+        try:
+            _png = _assets / "logo_white.png"
+            if _png.exists():
+                self._logo_photo = tk.PhotoImage(file=str(_png))
+                # Scale down to ~64px using Tk's subsample (image is likely 512px+)
+                w = self._logo_photo.width()
+                factor = max(1, w // 64)
+                self._logo_photo = self._logo_photo.subsample(factor, factor)
+        except Exception:
+            pass
+
+        # Centre on screen — do after icon so geometry is correct
         self.update_idletasks()
-        w, h = 460, 180
+        w, h = 460, 220
         x = (self.winfo_screenwidth()  - w) // 2
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -66,10 +93,17 @@ class SetupWindow(tk.Tk):
         # Prevent closing during install
         self.protocol("WM_DELETE_WINDOW", lambda: None)
 
+        # Logo image (if loaded)
+        if self._logo_photo:
+            tk.Label(self, image=self._logo_photo,
+                     bg="#1a1a2e").pack(pady=(18, 4))
+        else:
+            tk.Frame(self, height=18, bg="#1a1a2e").pack()  # spacing fallback
+
         tk.Label(
             self, text="LLC Scanner", bg="#1a1a2e", fg="#e0e0e0",
             font=("Helvetica", 16, "bold"),
-        ).pack(pady=(24, 4))
+        ).pack(pady=(0, 4))
 
         self._status = tk.StringVar(value="Installing dependencies...")
         tk.Label(
