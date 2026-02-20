@@ -71,7 +71,7 @@ class SetupWindow(tk.Tk):
             font=("Helvetica", 16, "bold"),
         ).pack(pady=(24, 4))
 
-        self._status = tk.StringVar(value="Installing dependencies…")
+        self._status = tk.StringVar(value="Installing dependencies...")
         tk.Label(
             self, textvariable=self._status, bg="#1a1a2e", fg="#a0a0b0",
             font=("Helvetica", 10),
@@ -93,7 +93,7 @@ class SetupWindow(tk.Tk):
     def set_detail(self, msg: str):
         # Truncate long lines so the window doesn't resize
         if len(msg) > 70:
-            msg = "…" + msg[-67:]
+            msg = "..." + msg[-67:]
         self.after(0, lambda: self._detail.set(msg))
 
     def finish(self):
@@ -105,7 +105,22 @@ class SetupWindow(tk.Tk):
 # ── Install logic ──────────────────────────────────────────────────────────────
 
 def _find_system_python() -> str | None:
-    """Find a Python 3.11+ interpreter on the system PATH."""
+    """Find a Python 3.11+ interpreter.
+
+    Search order:
+      1. Per-user Python 3.11 installed by the LLC Scanner installer
+         (%LocalAppData%\\Programs\\Python\\Python311\\python.exe)
+      2. Any Python 3.11+ on the system PATH
+    """
+    # Priority 1: known per-user install location used by the LLC Scanner installer
+    # (installer runs with InstallAllUsers=0 PrependPath=0, so it won't be on PATH)
+    if sys.platform == "win32":
+        local_app = os.getenv("LOCALAPPDATA", "")
+        bundled = Path(local_app) / "Programs" / "Python" / "Python311" / "python.exe"
+        if bundled.exists():
+            return str(bundled)
+
+    # Priority 2: system PATH (covers user-managed Python installs)
     for candidate in ("python", "python3", "py"):
         try:
             result = subprocess.run(
@@ -122,29 +137,51 @@ def _find_system_python() -> str | None:
     return None
 
 
+def _show_error_and_close(window: SetupWindow, title: str, message: str):
+    """Show a blocking error dialog on the main thread, then close the window."""
+    from tkinter import messagebox
+    def _do():
+        window.withdraw()   # hide progress window while dialog is open
+        messagebox.showerror(title, message)
+        window.destroy()
+    window.after(0, _do)
+
+
 def _run_setup(window: SetupWindow):
     """Run in a background thread: create venv + pip install."""
     try:
         python_cmd = _find_system_python()
         if python_cmd is None:
-            window.set_status("Python 3.11+ not found!")
-            window.set_detail(
-                "Please install Python 3.11 from python.org, then re-launch."
+            _show_error_and_close(
+                window,
+                "Setup Failed - Python Not Found",
+                "LLC Scanner could not locate Python 3.11.\n\n"
+                "Please try uninstalling and reinstalling LLC Scanner.\n\n"
+                "If the problem persists, install Python 3.11 manually from:\n"
+                "https://www.python.org/downloads/\n"
+                "(Use the default options when installing.)"
             )
-            window.finish()
             return
 
         # Step 1: create venv
-        window.set_status("Creating virtual environment…")
+        window.set_status("Creating virtual environment...")
         window.set_detail(str(VENV_DIR))
-        subprocess.run(
+        result = subprocess.run(
             [python_cmd, "-m", "venv", str(VENV_DIR)],
-            check=True, capture_output=True,
+            capture_output=True, text=True,
         )
+        if result.returncode != 0:
+            _show_error_and_close(
+                window,
+                "Setup Failed - Venv Error",
+                "Could not create the Python environment.\n\n"
+                f"Error:\n{result.stderr.strip() or result.stdout.strip()}"
+            )
+            return
 
         # Step 2: pip install
-        window.set_status("Installing dependencies (this may take a few minutes)…")
-        window.set_detail("Downloading packages from PyPI…")
+        window.set_status("Installing dependencies (this may take a few minutes)...")
+        window.set_detail("Downloading packages from PyPI...")
 
         pip_cmd = [
             str(VENV_PYTHON), "-m", "pip", "install",
@@ -163,21 +200,27 @@ def _run_setup(window: SetupWindow):
         proc.wait()
 
         if proc.returncode != 0:
-            window.set_status("Dependency install failed.")
-            window.set_detail("Check your internet connection and try again.")
-            window.finish()
+            _show_error_and_close(
+                window,
+                "Setup Failed - Install Error",
+                "Failed to install dependencies.\n\n"
+                "Please check your internet connection and try launching again.\n"
+                "If the problem persists, contact support."
+            )
             return
 
-        window.set_status("Setup complete! Launching LLC Scanner…")
+        window.set_status("Setup complete! Launching LLC Scanner...")
         window.set_detail("")
 
     except Exception as exc:
-        window.set_status("Setup error.")
-        window.set_detail(str(exc))
-        window.finish()
+        _show_error_and_close(
+            window,
+            "Setup Error",
+            f"An unexpected error occurred during setup:\n\n{exc}"
+        )
         return
 
-    # Small delay so user can read the "complete" message, then close window
+    # Small delay so user can read the "complete" message, then launch
     window.after(1200, _launch_app_and_close, window)
 
 
