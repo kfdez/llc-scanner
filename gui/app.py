@@ -2055,60 +2055,60 @@ class CardIdentifierApp(tk.Tk):
     # ------------------------------------------------------------------
 
     _HELP_TEXT = """\
-LLC SCANNER  —  User Guide
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LLC SCANNER  --  User Guide
+===================================================================
 
 OVERVIEW
-────────
-LLC Scanner automatically identifies Pokémon cards from scan images and
+--------
+LLC Scanner automatically identifies Pokemon cards from scan images and
 generates ready-to-upload eBay CSV files. It matches your scans against a
-local database of ~22 000 cards using perceptual hashing and a GPU-accelerated
+local database of ~22,000 cards using perceptual hashing and a GPU-accelerated
 ML embedding model (DINOv2), so results are fast and work fully offline after
 the initial setup.
 
 
 FIRST-TIME SETUP
-────────────────
-1.  Go to  Setup → Download / Update Card Database.
-    This fetches card metadata and images from TCGdex (may take 30–60 min
+----------------
+1.  Go to  Setup -> Download / Update Card Database.
+    This fetches card metadata and images from TCGdex (may take 30-60 min
     on first run; fully resumable if interrupted).
 
-2.  Go to  Setup → Rehash All Cards (fixes accuracy).
+2.  Go to  Setup -> Rehash All Cards (fixes accuracy).
     Computes perceptual hashes for every downloaded card image.
 
-3.  Optionally run  Setup → Build Embeddings (ML, GPU)  for the highest
-    accuracy. Requires a CUDA-capable GPU. Takes ~10–20 min on an RTX 30-series.
+3.  Optionally run  Setup -> Build Embeddings (ML, GPU)  for the highest
+    accuracy. Requires a CUDA-capable GPU. Takes ~10-20 min on an RTX 30-series.
 
 After setup, the app is ready to scan.
 
 
-SCANNING CARDS  —  BATCH MODE
-──────────────────────────────
-1.  Click  Open Files…  or  Open Folder…  to load your scan images.
+SCANNING CARDS  --  BATCH MODE
+-------------------------------
+1.  Click  Open Files...  or  Open Folder...  to load your scan images.
     Supported formats: JPEG, PNG, TIFF, BMP.
 
 2.  Select a Matcher mode in the toolbar:
-      • ML (GPU)  — most accurate, uses DINOv2 embeddings (recommended)
-      • Hash       — fastest, uses perceptual hashing (no GPU required)
+      - ML (GPU)  -- most accurate, uses DINOv2 embeddings (recommended)
+      - Hash      -- fastest, uses perceptual hashing (no GPU required)
 
 3.  Identification starts automatically once files are loaded.
     A progress bar shows activity while cards are being matched.
 
-4.  Results appear as rows — each showing:
-      • Scan thumbnail  (your image)
-      • Ref thumbnail   (matched card from database)
-      • Card name, set, number, rarity, confidence level
+4.  Results appear as rows -- each showing:
+      - Scan thumbnail  (your image)
+      - Ref thumbnail   (matched card from database)
+      - Card name, set, number, rarity, confidence level
 
-5.  Cycle through alternative matches using  ◀  /  ▶  in the row's
+5.  Cycle through alternative matches using  <  /  >  in the row's
     action buttons if the first match isn't correct.
 
-6.  Click 🔍 to open a search dialog and manually assign a card.
+6.  Click  ?  to open a search dialog and manually assign a card.
 
 
 FRONT + BACK SCANNING
-─────────────────────
+---------------------
 Enable  Front+Back  mode in the toolbar before loading files.
-Select scans in interleaved order: front₀, back₀, front₁, back₁, …
+Select scans in interleaved order: front0, back0, front1, back1, ...
 
 Ensure your scanner names files sequentially so they sort in this order
 naturally (e.g. scan_001.jpg = front, scan_002.jpg = back, etc.).
@@ -2118,31 +2118,31 @@ so buyers see the front and back photos on the listing.
 
 
 EDITING ROWS
-────────────
+------------
 Each row has editable fields:
 
-  Custom Label   — Your internal SKU / reference (auto-generated from
-                   batch name + row number, zero-padded to 3 digits)
-  Title          — Auto-built from card name, set, number, rarity, finish,
-                   and condition. Updates live as you change other fields.
-  Finish         — Non-Holo / Reverse Holo / Holo / Poke Ball Holo /
-                   Master Ball Holo
-  Edition        — Unlimited / 1st Edition (shown for WotC-era cards only)
-  Qty            — Quantity to list (Tab key moves to the next row)
-  Price          — Listing price in CAD (Tab key moves to the next row)
-  Condition      — Near Mint / Lightly Played / Moderately Played /
-                   Heavily Played / Damaged
-  Description    — Click the description cell to open the full HTML editor.
-                   Toggle between raw HTML and a live preview with the
-                   ⬜ Preview / ✏ Edit HTML button.
+  Custom Label   -- Your internal SKU / reference (auto-generated from
+                    batch name + row number, zero-padded to 3 digits)
+  Title          -- Auto-built from card name, set, number, rarity, finish,
+                    and condition. Updates live as you change other fields.
+  Finish         -- Non-Holo / Reverse Holo / Holo / Poke Ball Holo /
+                    Master Ball Holo
+  Edition        -- Unlimited / 1st Edition (shown for WotC-era cards only)
+  Qty            -- Quantity to list (Tab key moves to the next row)
+  Price          -- Listing price in CAD (Tab key moves to the next row)
+  Condition      -- Near Mint / Lightly Played / Moderately Played /
+                    Heavily Played / Damaged
+  Description    -- Click the description cell to open the full HTML editor.
+                    Toggle between raw HTML and a live preview with the
+                    [ ] Preview / < Edit HTML button.
 
 Hover over any scan or reference thumbnail to display a pop-up preview.
 
 
 DESCRIPTION TEMPLATE
-────────────────────
+--------------------
 A default HTML description is pre-filled for every row using the template
-in  Export → eBay Export Settings.  Available placeholders:
+in  Export -> eBay Export Settings.  Available placeholders:
 
     {name}       Card name
     {set}        Set name
@@ -2156,77 +2156,118 @@ to restore the rendered template.
 
 
 EXPORTING TO EBAY
-─────────────────
-1.  Fill in  Export → eBay Export Settings  once:
-      • Shipping / Return / Payment profile names (from your eBay account)
-      • Location (city, province — e.g. "Toronto, ON")
-      • Dispatch days, Best Offer toggle
+-----------------
+1.  Fill in  Export -> eBay Export Settings  once:
+      - Shipping / Return / Payment profile names (from your eBay account)
+      - Location (city, province -- e.g. "Toronto, ON")
+      - Dispatch days, Best Offer toggle
 
 2.  To include scan photos in the listing you need a free imgbb account:
-      a.  Sign up at  https://imgbb.com/  and go to  About → API  to get
+      a.  Sign up at  https://imgbb.com/  and go to  About -> API  to get
           your API key.
-      b.  Paste the key into  eBay Export Settings → imgbb API Key  and
+      b.  Paste the key into  eBay Export Settings -> imgbb API Key  and
           enable  Auto-upload scans to imgbb.
-    Images are hosted for 24 hours — long enough for eBay to transload them.
+    Images are hosted for 24 hours -- long enough for eBay to transload them.
 
-3.  Click  Export CSV…  in the toolbar (or  Export → Export Batch to eBay CSV…).
+3.  Click  Export CSV...  in the toolbar (or  Export -> Export Batch to eBay CSV...).
     If imgbb is enabled, scans are uploaded automatically before the CSV
     is written.  A progress dialog tracks upload progress.
 
 4.  Import the CSV in your eBay Seller Hub under
-    "Listings → Bulk listing tool → Upload a file".
+    "Listings -> Bulk listing tool -> Upload a file".
 
 
 COLUMN WIDTHS
-─────────────
+-------------
 Drag the column header dividers to resize columns. Widths are saved to
 settings.json automatically and restored on next launch.
 
 
 KEYBOARD SHORTCUTS
-──────────────────
-  Tab (in Qty / Price)   — Move focus to the same field in the next row
-  Scroll wheel           — Scroll the batch grid vertically
+------------------
+  Tab (in Qty / Price)   -- Move focus to the same field in the next row
+  Scroll wheel           -- Scroll the batch grid vertically
 
 
 DATA STORAGE
-────────────
-All card data and images are stored locally in the data/ folder next to
-the application (or a custom folder set in  Setup → Change Data Directory).
+------------
+All card data and images are stored locally in the configured data folder
+(default: data/ next to the application).
 
-  data/cards.db      SQLite database — cards, hashes, embeddings
-  data/images/       Downloaded card reference images
-  settings.json      User preferences and eBay export settings
+  cards.db       SQLite database -- cards, hashes, embeddings
+  images/        Downloaded card reference images
+  settings.json  User preferences and eBay export settings
+
+To change where data is stored, go to  Setup -> Change Data Directory.
+The database and images are NOT moved automatically -- copy them manually
+then use  Setup -> Relink Images from Folder  to update the paths.
+
+
+SETUP MENU REFERENCE
+--------------------
+  Download / Update Card Database
+      Fetches metadata and images from TCGdex. Skips cards that are already
+      downloaded. Safe to re-run to pick up new sets.
+
+  Refresh Card Metadata
+      Re-fetches set names, rarities, and variant flags for all cards without
+      re-downloading images.
+
+  Rehash All Cards (fixes accuracy)
+      Clears all stored perceptual hashes and recomputes them from the local
+      image files. Required after moving images or changing PHASH_SIZE.
+
+  Build / Rebuild Embeddings (ML, GPU)
+      Computes DINOv2 embeddings for ML matching. Requires a CUDA GPU.
+      "Build" adds missing embeddings; "Rebuild" recomputes all from scratch.
+
+  Change Data Directory...
+      Moves the active database and images path to a new folder. Does NOT
+      physically move any files -- copy them manually first.
+
+  Relink Images from Folder...
+      Scans a folder for image files and updates local_image_path in the
+      database for every card whose ID matches a filename (e.g. swsh1-1.png).
+      Use this after copying images to a new location. Optionally triggers a
+      full rehash automatically once relinking is complete.
 
 
 EXCLUDING CARD SETS
-───────────────────
-Pokémon TCG Pocket sets (mobile game) are excluded from matching by default
+-------------------
+Pokemon TCG Pocket sets (mobile game) are excluded from matching by default
 since they are not physical cards. This is controlled by
 EXCLUDED_SET_ID_PREFIXES in config.py (currently: A, B, P-A).
 
 
 TROUBLESHOOTING
-───────────────
-  Poor match accuracy   → Run  Setup → Rehash All Cards, or build ML
-                          embeddings for the best results.
+---------------
+  Poor match accuracy   -> Run  Setup -> Rehash All Cards, or build ML
+                           embeddings for the best results.
 
-  Wrong card matched    → Use ◀ / ▶ to cycle candidates, or 🔍 to search
-                          manually.
+  Wrong card matched    -> Use  <  /  >  to cycle candidates, or  ?  to
+                           search manually.
 
-  imgbb URL missing     → Ensure your API key is saved in eBay Export
-                          Settings and Auto-upload is enabled.
+  imgbb URL missing     -> Ensure your API key is saved in eBay Export
+                           Settings and Auto-upload is enabled.
 
-  Slow first identify   → The ML index loads on first use (~5–10 s).
-                          Subsequent identifies are instant.
+  Slow first identify   -> The ML index loads on first use (~5-10 s).
+                           Subsequent identifies are instant.
 
-  Card images missing   → Re-run  Setup → Download / Update Card Database.
-                          The downloader skips cards that already have images.
+  Card images missing   -> If images were deleted or moved:
+                           1. Copy images to the correct folder.
+                           2. Run  Setup -> Relink Images from Folder
+                              and select that folder (rehash runs after).
+                           Or re-run  Setup -> Download / Update Card Database
+                           to re-download any missing images from TCGdex.
+
+  0 hashed after rehash -> Images are missing from the images folder.
+                           Use  Setup -> Relink Images from Folder  if you
+                           have the files elsewhere, or re-download them.
 
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LLC Scanner  v1-beta  •  © 2026 Kyle Fernandez  •  LowLatencyCards
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+===================================================================
+LLC Scanner  v1-beta  -  (c) 2026 Kyle Fernandez  -  LowLatencyCards
+===================================================================
 """
 
     def _open_help(self):
