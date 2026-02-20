@@ -53,11 +53,21 @@ class CardIdentifierApp(tk.Tk):
         self.geometry("1440x900")
         self.minsize(900, 600)
 
-        # ── App icon (favicon) — black logo for taskbar/title bar ──
-        _assets = Path(__file__).parent / "assets"
+        # ── App icon — taskbar + title bar ──
+        # Use the resolved path of this file so it works both in development
+        # (run from source) and in the installed version (run from venv).
+        _assets = Path(__file__).resolve().parent / "assets"
         try:
+            # iconbitmap() sets the Windows taskbar + title bar icon from a .ico file.
+            # Must be called before any other window operations to take effect.
+            _ico = _assets / "logo.ico"
+            if _ico.exists():
+                self.iconbitmap(default=str(_ico))
+        except Exception:
+            pass  # icon is optional
+        try:
+            # iconphoto() provides a fallback for non-Windows and for child windows.
             _icon = Image.open(_assets / "logo_black.png").convert("RGBA")
-            # Tk needs a PhotoImage for iconphoto; also try .ico via iconbitmap
             self._app_icon = ImageTk.PhotoImage(_icon)
             self.iconphoto(True, self._app_icon)
         except Exception:
