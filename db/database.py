@@ -92,11 +92,38 @@ def upsert_hashes_batch(hashes: list[dict]):
 
 
 def get_cards_without_images() -> list[sqlite3.Row]:
-    """Return all cards that have no local image file yet, regardless of whether image_url is set."""
+    """Return all cards that have no local image file yet, regardless of whether image_url is set.
+
+    Also includes cards whose local_image_path is recorded in the DB but the file no longer
+    exists on disk (e.g. the images folder was moved, wiped, or the drive was reformatted).
+    For those rows the DB is also updated to NULL so subsequent queries stay consistent.
+    """
     with get_connection() as conn:
-        return conn.execute(
+        # First: cards with no path recorded
+        rows = conn.execute(
             "SELECT id, image_url FROM cards WHERE local_image_path IS NULL"
         ).fetchall()
+
+        # Second: cards whose recorded path no longer exists on disk
+        stale = conn.execute(
+            "SELECT id, image_url, local_image_path FROM cards WHERE local_image_path IS NOT NULL"
+        ).fetchall()
+
+        missing_ids = [r["id"] for r in stale if not Path(r["local_image_path"]).exists()]
+        if missing_ids:
+            conn.executemany(
+                "UPDATE cards SET local_image_path = NULL WHERE id = ?",
+                [(card_id,) for card_id in missing_ids],
+            )
+            # Re-fetch those rows now that their paths are cleared
+            placeholders = ",".join("?" * len(missing_ids))
+            extra = conn.execute(
+                f"SELECT id, image_url FROM cards WHERE id IN ({placeholders})",
+                missing_ids,
+            ).fetchall()
+            rows = list(rows) + list(extra)
+
+        return rows
 
 
 def get_cards_without_image_url() -> list[sqlite3.Row]:

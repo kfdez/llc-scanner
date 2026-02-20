@@ -404,7 +404,7 @@ class CardIdentifierApp(tk.Tk):
             ("conf",    "Conf"),    ("qty",     "Qty"),
             ("price",   "Price $"), ("cond",    "Cond"),
             ("game",    "Game"),    ("desc",    "Desc"),
-            ("link",    ""),        ("actions", "Actions"),
+            ("actions", "Actions"),
         ]
         # Header lives in a canvas so it can scroll horizontally in sync with the grid.
         hdr_canvas = tk.Canvas(parent, bg="#0d0d1a", highlightthickness=0, height=22)
@@ -827,7 +827,7 @@ class CardIdentifierApp(tk.Tk):
         "scan": 78, "ref": 78, "title": 260, "label": 140, "name": 175, "set": 135,
         "num": 80, "rarity": 90, "finish": 115, "edition": 95, "conf": 90,
         "qty": 55, "price": 80, "cond": 120, "game": 100, "desc": 120,
-        "link": 40, "actions": 120,
+        "actions": 120,
     }
 
     _COND_SHORT = {
@@ -1370,16 +1370,6 @@ class CardIdentifierApp(tk.Tk):
 
         cond_var.trace_add("write", _update_desc_on_cond)
 
-        # ── TCGdex link button ──
-        link_cell = _named_cell("link")
-        url = top.get("image_url", "") if top else ""
-        link_btn = _bind_mw(tk.Button(link_cell, text="[link]",
-                                       command=lambda u=url: webbrowser.open(u) if u else None,
-                                       bg=bg, fg="#5599ff", relief="flat",
-                                       font=("Helvetica", 12), cursor="hand2",
-                                       activebackground=bg))
-        link_btn.place(relx=0.5, rely=0.5, anchor="center")
-
         # ── Action buttons (prev / next / search / delete) ──
         action_cell = _named_cell("actions")
         action_frame = _bind_mw(tk.Frame(action_cell, bg=bg))
@@ -1434,7 +1424,6 @@ class CardIdentifierApp(tk.Tk):
             "desc_var":          desc_var,
             "desc_render":       _render_desc,
             "desc_user_edited":  _desc_user_edited,
-            "link_btn":   link_btn,
             "bg":         bg,
             # Cell frame refs keyed as "_cell_<colkey>" for column-resize updates
             **{f"_cell_{k}": v for k, v in _cells.items()},
@@ -1647,10 +1636,6 @@ class CardIdentifierApp(tk.Tk):
         else:
             w["edition_cb"].place_forget()
             w["edition_var"].set("Unlimited")
-
-        # Re-bind the link button to the new URL
-        url = top.get("image_url", "") if top else ""
-        w["link_btn"].config(command=lambda u=url: webbrowser.open(u) if u else None)
 
     def _cycle_match(self, row: BatchRow, delta: int):
         """Step through candidates (±1) with wraparound and refresh the row."""
