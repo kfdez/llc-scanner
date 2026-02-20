@@ -5,6 +5,7 @@ opencv-python>=4.8.0
 imagehash>=4.3.1
 numpy>=1.24.0
 tcgdex-sdk>=2.2.1
+tkinterweb>=3.24.0
 
 # ML embedding matcher (EfficientNet-B0 via timm + FAISS nearest-neighbour search)
 # NOTE: torch from PyPI is CPU-only. For CUDA (RTX 3070), install the CUDA wheel:
