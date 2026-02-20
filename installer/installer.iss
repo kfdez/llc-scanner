@@ -88,15 +88,15 @@ begin
     wpSelectDir,
     'First-Run Information',
     'What happens after installation',
-    'After installation, LLC Scanner will:'#13#10 +
-    #13#10 +
-    '  1. Install Python dependencies (~600 MB from PyPI)'#13#10 +
-    '     This takes 3-8 minutes on the first launch.'#13#10 +
-    #13#10 +
-    '  2. Run the Setup Wizard to download card data'#13#10 +
-    '     (~22,000 cards — requires an internet connection).'#13#10 +
-    #13#10 +
-    'An internet connection is required for the first launch.'#13#10 +
+    'After installation, LLC Scanner will:' + #13#10 +
+    '' + #13#10 +
+    '  1. Install Python dependencies (~600 MB from PyPI)' + #13#10 +
+    '     This takes 3-8 minutes on the first launch.' + #13#10 +
+    '' + #13#10 +
+    '  2. Run the Setup Wizard to download card data' + #13#10 +
+    '     (~22,000 cards - requires an internet connection).' + #13#10 +
+    '' + #13#10 +
+    'An internet connection is required for the first launch.' + #13#10 +
     'Subsequent launches will start instantly.'
   );
 end;

@@ -2,10 +2,10 @@
 LLC Scanner — Installer Build Script
 =====================================
 Automates the full pipeline:
-  1. Converts logo PNG → ICO (installer icon)
-  2. Compiles launcher.py → launcher.exe via PyInstaller
+  1. Converts logo PNG -> ICO (installer icon)
+  2. Compiles launcher.py -> launcher.exe via PyInstaller
   3. Stages app source files into installer/dist/app/
-  4. Runs Inno Setup compiler (iscc) → LLC-Scanner-Setup.exe
+  4. Runs Inno Setup compiler (iscc) -> LLC-Scanner-Setup.exe
 
 Prerequisites (install once):
   pip install pyinstaller pillow
@@ -20,8 +20,10 @@ The finished installer will be at:
 
 import os
 import sys
+import stat
 import shutil
 import subprocess
+import winreg
 from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
@@ -49,17 +51,50 @@ APP_DIRS = [
     "identifier",
 ]
 
-# Inno Setup compiler path (adjust if installed elsewhere)
+# Inno Setup compiler — fallback hard-coded paths (registry lookup is preferred)
 ISCC_PATHS = [
     Path(r"C:\Program Files (x86)\Inno Setup 6\iscc.exe"),
     Path(r"C:\Program Files\Inno Setup 6\iscc.exe"),
+    Path(r"C:\Program Files (x86)\Inno Setup 5\iscc.exe"),
+    Path(r"C:\Program Files\Inno Setup 5\iscc.exe"),
 ]
 
 
-# ── Step 1: PNG → ICO ─────────────────────────────────────────────────────────
+def _find_iscc() -> Path | None:
+    """Locate iscc.exe via registry, PATH, or known install paths."""
+    # 1. Check Windows registry (most reliable)
+    reg_keys = [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1"),
+        (winreg.HKEY_CURRENT_USER,  r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1"),
+    ]
+    for hive, key_path in reg_keys:
+        try:
+            with winreg.OpenKey(hive, key_path) as key:
+                install_dir, _ = winreg.QueryValueEx(key, "InstallLocation")
+                candidate = Path(install_dir) / "iscc.exe"
+                if candidate.exists():
+                    return candidate
+        except OSError:
+            continue
+
+    # 2. Check PATH
+    iscc_in_path = shutil.which("iscc")
+    if iscc_in_path:
+        return Path(iscc_in_path)
+
+    # 3. Fall back to hard-coded locations
+    for path in ISCC_PATHS:
+        if path.exists():
+            return path
+
+    return None
+
+
+# ── Step 1: PNG -> ICO ─────────────────────────────────────────────────────────
 
 def build_icon():
-    print("[1/4] Converting logo to .ico …")
+    print("[1/4] Converting logo to .ico ...")
     try:
         from PIL import Image
     except ImportError:
@@ -75,13 +110,13 @@ def build_icon():
     # Generate multiple sizes for the .ico multi-resolution format
     sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
     img.save(ICON_ICO, format="ICO", sizes=sizes)
-    print(f"  → {ICON_ICO}")
+    print(f"  -> {ICON_ICO}")
 
 
 # ── Step 2: Compile launcher.exe ──────────────────────────────────────────────
 
 def build_launcher():
-    print("[2/4] Compiling launcher.exe via PyInstaller …")
+    print("[2/4] Compiling launcher.exe via PyInstaller ...")
 
     icon_arg = str(ICON_ICO) if ICON_ICO.exists() else "NONE"
 
@@ -107,16 +142,20 @@ def build_launcher():
         print("  ERROR: launcher.exe not found after PyInstaller build.")
         sys.exit(1)
 
-    print(f"  → {launcher_exe}  ({launcher_exe.stat().st_size // 1024} KB)")
+    print(f"  -> {launcher_exe}  ({launcher_exe.stat().st_size // 1024} KB)")
 
 
 # ── Step 3: Stage app files ───────────────────────────────────────────────────
 
 def stage_app():
-    print("[3/4] Staging app source files …")
+    print("[3/4] Staging app source files ...")
 
     if APP_STAGE.exists():
-        shutil.rmtree(APP_STAGE)
+        def _force_remove(func, path, exc_info):
+            # Clear read-only flag and retry (handles OneDrive-locked files)
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        shutil.rmtree(APP_STAGE, onerror=_force_remove)
     APP_STAGE.mkdir(parents=True)
 
     for fname in APP_FILES:
@@ -139,13 +178,13 @@ def stage_app():
         else:
             print(f"  WARNING: {dname}/ not found, skipping.")
 
-    print(f"  → Staged to {APP_STAGE}")
+    print(f"  -> Staged to {APP_STAGE}")
 
 
 # ── Step 4: Run Inno Setup ────────────────────────────────────────────────────
 
 def build_setup():
-    print("[4/4] Building installer with Inno Setup …")
+    print("[4/4] Building installer with Inno Setup ...")
 
     # Check redist folder has Python installer
     redist_files = list(REDIST_DIR.glob("python-3.11*.exe")) if REDIST_DIR.exists() else []
@@ -160,11 +199,7 @@ def build_setup():
         print("  Re-run this script once python-3.11.9-amd64.exe is in place.")
         return
 
-    iscc = None
-    for path in ISCC_PATHS:
-        if path.exists():
-            iscc = path
-            break
+    iscc = _find_iscc()
 
     if iscc is None:
         print()
@@ -175,6 +210,7 @@ def build_setup():
         print("  Re-run this script once Inno Setup is installed.")
         return
 
+    print(f"  Inno Setup found: {iscc}")
     iss_file = SCRIPT_DIR / "installer.iss"
     result = subprocess.run([str(iscc), str(iss_file)], cwd=str(SCRIPT_DIR))
     if result.returncode != 0:
@@ -184,7 +220,7 @@ def build_setup():
     output = SCRIPT_DIR / "dist" / "LLC-Scanner-Setup.exe"
     if output.exists():
         size_mb = output.stat().st_size / (1024 * 1024)
-        print(f"  → {output}  ({size_mb:.1f} MB)")
+        print(f"  -> {output}  ({size_mb:.1f} MB)")
     else:
         print("  Done (output path unknown — check installer/dist/).")
 
