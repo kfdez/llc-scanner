@@ -220,8 +220,8 @@ def _run_setup(window: SetupWindow):
             )
             return
 
-        window.set_status("Setup complete! Launching LLC Scanner...")
-        window.set_detail("")
+        window.set_status("Setup complete!")
+        window.set_detail("Launch LLC Scanner from the Start Menu or desktop shortcut.")
 
     except Exception as exc:
         _show_error_and_close(
@@ -231,39 +231,31 @@ def _run_setup(window: SetupWindow):
         )
         return
 
-    # Small delay so user can read the "complete" message, then launch
-    window.after(1200, _launch_app_and_close, window)
-
-
-def _launch_app_and_close(window: SetupWindow):
-    """Launch the real app, then close the setup window."""
-    _launch_app()
-    # Give the child process time to initialise before our window disappears.
-    # 800 ms is enough for pythonw.exe + Tk to claim the session on slow machines.
-    window.after(800, window.destroy)
+    # Close automatically after a few seconds so the user can read the message.
+    window.after(3000, window.destroy)
 
 
 # ── App launcher ───────────────────────────────────────────────────────────────
 
 def _launch_app():
     """Start main.py using the venv Python via pythonw.exe (no console window)."""
-    # Use pythonw.exe — the windowless variant that ships with every Python install.
     pythonw = VENV_PYTHON.parent / "pythonw.exe"
     python_cmd = pythonw if pythonw.exists() else VENV_PYTHON
 
-    # Force UTF-8 mode so Unicode characters in the app's UI strings (arrows,
-    # emoji, box-drawing chars, en-dashes, etc.) don't crash Tkinter on Windows
-    # systems with a cp1252 default locale (most English Windows installs).
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
 
-    # Use -X utf8 so Python enters UTF-8 mode before importing any user module.
-    # This is more reliable than the PYTHONUTF8 env var for PyInstaller-spawned
-    # children because the flag is applied directly by the interpreter at startup,
-    # before any locale or environment processing can interfere.
-    # No special creationflags: let the child inherit the parent's window station
-    # so Tkinter can create its window normally (CREATE_NEW_PROCESS_GROUP can
-    # break window-station association when the parent is a frozen PyInstaller EXE).
+    # Strip all PyInstaller-injected Tcl/Tk env vars from the child's environment.
+    # When launcher.exe runs, PyInstaller sets TCL_LIBRARY / TK_LIBRARY / TCLLIBPATH
+    # pointing at its own _MEI* temp folder. The child pythonw.exe inherits these
+    # and tries to load Tcl from there instead of from C:\Python313, which causes:
+    #   _tkinter.TclError: Can't find a usable init.tcl in the following directories:
+    #       {C:\Users\...\Temp\_MEI348762\_tcl_data} ...
+    # Removing them lets pythonw find its own Tcl installation normally.
+    for _var in ("TCL_LIBRARY", "TK_LIBRARY", "TCLLIBPATH",
+                 "TCL_DATA", "_MEIPASS2", "_PYI_ONEFILE_PARENT"):
+        env.pop(_var, None)
+
     subprocess.Popen(
         [str(python_cmd), "-X", "utf8", str(MAIN_PY)],
         cwd=str(APP_DIR),
