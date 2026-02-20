@@ -241,16 +241,18 @@ def _launch_app_and_close(window: SetupWindow):
 # ── App launcher ───────────────────────────────────────────────────────────────
 
 def _launch_app():
-    """Start main.py using the venv Python (detached, no console window)."""
-    kwargs = {}
-    if sys.platform == "win32":
-        # DETACHED_PROCESS prevents a console window from appearing
-        kwargs["creationflags"] = 0x00000008  # DETACHED_PROCESS
+    """Start main.py using the venv Python via pythonw.exe (no console window)."""
+    # Use pythonw.exe instead of python.exe — it's the windowless variant
+    # that ships with every Python install and doesn't need any special flags.
+    # DETACHED_PROCESS can cause the child to lose its session on some Windows
+    # configs, preventing the Tkinter window from appearing.
+    pythonw = VENV_PYTHON.parent / "pythonw.exe"
+    python_cmd = pythonw if pythonw.exists() else VENV_PYTHON
 
     subprocess.Popen(
-        [str(VENV_PYTHON), str(MAIN_PY)],
+        [str(python_cmd), str(MAIN_PY)],
         cwd=str(APP_DIR),
-        **kwargs,
+        # No creationflags — let Windows handle session inheritance normally
     )
 
 
