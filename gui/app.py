@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Tkinter desktop GUI for the Pokemon Card Identifier.
 """
@@ -48,7 +49,7 @@ class BatchRow:
 class CardIdentifierApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("LLC Scanner — v1-beta")
+        self.title("LLC Scanner - v1-beta")
         self.configure(bg="#1a1a2e")
         self.geometry("1440x900")
         self.minsize(900, 600)

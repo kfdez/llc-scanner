@@ -202,6 +202,7 @@ def _run_setup(window: SetupWindow):
             pip_cmd,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
+            encoding="utf-8", errors="replace",
         )
         for line in proc.stdout:
             line = line.rstrip()
@@ -256,14 +257,17 @@ def _launch_app():
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
 
-    # CREATE_NEW_PROCESS_GROUP lets the child own its own Windows console session
-    # so its Tkinter window appears correctly even after the launcher window closes.
-    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    # Use -X utf8 so Python enters UTF-8 mode before importing any user module.
+    # This is more reliable than the PYTHONUTF8 env var for PyInstaller-spawned
+    # children because the flag is applied directly by the interpreter at startup,
+    # before any locale or environment processing can interfere.
+    # No special creationflags: let the child inherit the parent's window station
+    # so Tkinter can create its window normally (CREATE_NEW_PROCESS_GROUP can
+    # break window-station association when the parent is a frozen PyInstaller EXE).
     subprocess.Popen(
-        [str(python_cmd), str(MAIN_PY)],
+        [str(python_cmd), "-X", "utf8", str(MAIN_PY)],
         cwd=str(APP_DIR),
         env=env,
-        creationflags=CREATE_NEW_PROCESS_GROUP,
     )
 
 
