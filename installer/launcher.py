@@ -104,36 +104,44 @@ class SetupWindow(tk.Tk):
 
 # ── Install logic ──────────────────────────────────────────────────────────────
 
+def _check_python_version(cmd: str) -> bool:
+    """Return True if the given python command is 3.11+."""
+    try:
+        result = subprocess.run(
+            [cmd, "-c", "import sys; v=sys.version_info; print(v.major,v.minor)"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            major, minor = map(int, result.stdout.strip().split())
+            return major == 3 and minor >= 11
+    except Exception:
+        pass
+    return False
+
+
 def _find_system_python() -> str | None:
     """Find a Python 3.11+ interpreter.
 
     Search order:
-      1. Per-user Python 3.11 installed by the LLC Scanner installer
+      1. Any Python 3.11+ already on the system PATH (respects user's own install)
+      2. Per-user Python 3.11 installed by the LLC Scanner installer
          (%LocalAppData%\\Programs\\Python\\Python311\\python.exe)
-      2. Any Python 3.11+ on the system PATH
+         — only reached if the user had no existing Python 3.11+
     """
-    # Priority 1: known per-user install location used by the LLC Scanner installer
-    # (installer runs with InstallAllUsers=0 PrependPath=0, so it won't be on PATH)
+    # Priority 1: system PATH — covers Python 3.11, 3.12, 3.13, etc.
+    # If the user already has a newer Python we should use it, not override it.
+    for candidate in ("python", "python3", "py"):
+        if _check_python_version(candidate):
+            return candidate
+
+    # Priority 2: fallback to the bundled Python 3.11 installed by the LLC Scanner
+    # installer (InstallAllUsers=0, PrependPath=0 — so it won't be on PATH)
     if sys.platform == "win32":
         local_app = os.getenv("LOCALAPPDATA", "")
         bundled = Path(local_app) / "Programs" / "Python" / "Python311" / "python.exe"
-        if bundled.exists():
+        if bundled.exists() and _check_python_version(str(bundled)):
             return str(bundled)
 
-    # Priority 2: system PATH (covers user-managed Python installs)
-    for candidate in ("python", "python3", "py"):
-        try:
-            result = subprocess.run(
-                [candidate, "-c",
-                 "import sys; v=sys.version_info; print(v.major,v.minor)"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.returncode == 0:
-                major, minor = map(int, result.stdout.strip().split())
-                if major == 3 and minor >= 11:
-                    return candidate
-        except Exception:
-            continue
     return None
 
 

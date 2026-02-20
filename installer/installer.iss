@@ -62,12 +62,12 @@ Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; Tasks: deskt
 
 [Run]
 ; 1. Install Python 3.11 silently (per-user, no PATH modification)
-;    The /quiet flag suppresses all UI. InstallAllUsers=0 keeps it user-scoped.
-;    We check if python.exe already exists so repeat installs are fast.
+;    Skipped if the user already has Python 3.11+ of any version (3.11, 3.12, 3.13...)
+;    The Check function below handles version detection.
 Filename: "{tmp}\python-3.11.9-amd64.exe"; \
     Parameters: "/quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_test=0"; \
     StatusMsg: "Installing Python 3.11 (this only happens once)..."; \
-    Check: not FileExists(ExpandConstant('{localappdata}\Programs\Python\Python311\python.exe'))
+    Check: NeedsPython311
 
 ; 2. Run launcher on finish (optional checkbox)
 Filename: "{app}\{#AppExeName}"; \
@@ -79,6 +79,41 @@ Filename: "{app}\{#AppExeName}"; \
 Type: filesandordirs; Name: "{app}\.venv"
 
 [Code]
+// Returns True if we need to install Python 3.11 (i.e. no Python 3.11+ found).
+// Checks PATH candidates and known per-user install locations for 3.11-3.15.
+function NeedsPython311(): Boolean;
+var
+  Minor: Integer;
+  PythonExe: String;
+begin
+  // Check known per-user Python install locations (3.11 through 3.15)
+  for Minor := 11 to 15 do
+  begin
+    PythonExe := ExpandConstant('{localappdata}') + '\Programs\Python\Python3'
+                 + IntToStr(Minor) + '\python.exe';
+    if FileExists(PythonExe) then
+    begin
+      Result := False;
+      Exit;
+    end;
+  end;
+
+  // Check system-wide Python install locations (3.11 through 3.15)
+  for Minor := 11 to 15 do
+  begin
+    PythonExe := ExpandConstant('{pf}') + '\Python\Python3'
+                 + IntToStr(Minor) + '\python.exe';
+    if FileExists(PythonExe) then
+    begin
+      Result := False;
+      Exit;
+    end;
+  end;
+
+  // No suitable Python found — install bundled Python 3.11
+  Result := True;
+end;
+
 // Show a friendly note about the first-run dependency download
 procedure InitializeWizard();
 var
