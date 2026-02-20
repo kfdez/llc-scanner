@@ -53,20 +53,27 @@ class CardIdentifierApp(tk.Tk):
         self.geometry("1440x900")
         self.minsize(900, 600)
 
+        # ── Windows App User Model ID — must be set before any window is shown ──
+        # This tells Windows to group the taskbar button under our app identity
+        # rather than under pythonw.exe, and makes iconbitmap() apply to the
+        # taskbar button as well as the title bar.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "LowLatencyCards.LLCScanner.1"
+            )
+        except Exception:
+            pass
+
         # ── App icon — taskbar + title bar ──
-        # Use the resolved path of this file so it works both in development
-        # (run from source) and in the installed version (run from venv).
         _assets = Path(__file__).resolve().parent / "assets"
         try:
-            # iconbitmap() sets the Windows taskbar + title bar icon from a .ico file.
-            # Must be called before any other window operations to take effect.
             _ico = _assets / "logo.ico"
             if _ico.exists():
                 self.iconbitmap(default=str(_ico))
         except Exception:
             pass  # icon is optional
         try:
-            # iconphoto() provides a fallback for non-Windows and for child windows.
             _icon = Image.open(_assets / "logo_black.png").convert("RGBA")
             self._app_icon = ImageTk.PhotoImage(_icon)
             self.iconphoto(True, self._app_icon)
@@ -108,7 +115,7 @@ class CardIdentifierApp(tk.Tk):
         menubar = tk.Menu(self)
         setup_menu = tk.Menu(menubar, tearoff=0)
         setup_menu.add_command(label="Download / Update Card Database", command=self._run_setup)
-        setup_menu.add_command(label="Refresh Card Metadata (set names, rarities…)", command=self._run_refresh_metadata)
+        setup_menu.add_command(label="Refresh Card Metadata (set names, rarities...)", command=self._run_refresh_metadata)
         setup_menu.add_command(label="Rehash All Cards (fixes accuracy)", command=self._run_rehash)
         setup_menu.add_separator()
         setup_menu.add_command(label="Build Embeddings (ML, GPU)", command=self._run_build_embeddings)
@@ -118,15 +125,15 @@ class CardIdentifierApp(tk.Tk):
         menubar.add_cascade(label="Setup", menu=setup_menu)
 
         export_menu = tk.Menu(menubar, tearoff=0)
-        export_menu.add_command(label="Export Batch to eBay CSV…", command=self._export_ebay_csv)
+        export_menu.add_command(label="Export Batch to eBay CSV...", command=self._export_ebay_csv)
         export_menu.add_separator()
-        export_menu.add_command(label="eBay Export Settings…", command=self._open_ebay_settings)
+        export_menu.add_command(label="eBay Export Settings...", command=self._open_ebay_settings)
         menubar.add_cascade(label="Export", menu=export_menu)
 
         help_menu = tk.Menu(menubar, tearoff=0)
-        help_menu.add_command(label="LLC Scanner Help…", command=self._open_help)
+        help_menu.add_command(label="LLC Scanner Help...", command=self._open_help)
         help_menu.add_separator()
-        help_menu.add_command(label="☕  Support Development (Donate)…", command=self._open_donate)
+        help_menu.add_command(label="Support Development (Donate)...", command=self._open_donate)
         menubar.add_cascade(label="Help", menu=help_menu)
 
         self.config(menu=menubar)

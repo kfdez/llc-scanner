@@ -57,8 +57,8 @@ Source: "dist\app\gui\*";            DestDir: "{app}\gui";        Flags: ignorev
 Source: "dist\app\identifier\*";     DestDir: "{app}\identifier"; Flags: ignoreversion recursesubdirs
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
-Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\gui\assets\logo.ico"
+Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\gui\assets\logo.ico"; Tasks: desktopicon
 
 [Run]
 ; 1. Install Python 3.11 silently (per-user, no PATH modification)

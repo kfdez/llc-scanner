@@ -237,7 +237,9 @@ def _run_setup(window: SetupWindow):
 def _launch_app_and_close(window: SetupWindow):
     """Launch the real app, then close the setup window."""
     _launch_app()
-    window.after(200, window.destroy)
+    # Give the child process time to initialise before our window disappears.
+    # 800 ms is enough for pythonw.exe + Tk to claim the session on slow machines.
+    window.after(800, window.destroy)
 
 
 # ── App launcher ───────────────────────────────────────────────────────────────
@@ -254,10 +256,14 @@ def _launch_app():
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
 
+    # CREATE_NEW_PROCESS_GROUP lets the child own its own Windows console session
+    # so its Tkinter window appears correctly even after the launcher window closes.
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
     subprocess.Popen(
         [str(python_cmd), str(MAIN_PY)],
         cwd=str(APP_DIR),
         env=env,
+        creationflags=CREATE_NEW_PROCESS_GROUP,
     )
 
 
