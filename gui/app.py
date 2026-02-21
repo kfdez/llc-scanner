@@ -141,6 +141,7 @@ class CardIdentifierApp(tk.Tk):
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(label="LLC Scanner Help...", command=self._open_help)
         help_menu.add_separator()
+        help_menu.add_command(label="About LLC Scanner...", command=self._open_about)
         help_menu.add_command(label="Support Development (Donate)...", command=self._open_donate)
         menubar.add_cascade(label="Help", menu=help_menu)
 
@@ -2454,6 +2455,92 @@ TROUBLESHOOTING
 LLC Scanner  v1-beta2  -  (c) 2026 Kyle Fernandez  -  LowLatencyCards
 ===================================================================
 """
+
+    def _open_about(self):
+        """Show the About dialog with version info and credits."""
+        win = tk.Toplevel(self)
+        win.title("About LLC Scanner")
+        win.configure(bg="#1a1a2e")
+        win.resizable(False, False)
+        win.grab_set()
+
+        BG   = "#1a1a2e"
+        BG2  = "#0d0d1a"
+        FG   = "#d0d0e8"
+        DIM  = "#7777aa"
+        LINK = "#5599ff"
+
+        # ── Logo + title ──
+        top_f = tk.Frame(win, bg=BG2, padx=24, pady=18)
+        top_f.pack(fill="x")
+        try:
+            from PIL import Image, ImageTk
+            logo_path = Path(__file__).parent / "assets" / "logo_white.png"
+            img = Image.open(logo_path).convert("RGBA")
+            img.thumbnail((48, 48), Image.LANCZOS)
+            _logo_photo = ImageTk.PhotoImage(img)
+            logo_lbl = tk.Label(top_f, image=_logo_photo, bg=BG2)
+            logo_lbl.image = _logo_photo
+            logo_lbl.pack(side="left", padx=(0, 14))
+        except Exception:
+            pass
+
+        title_f = tk.Frame(top_f, bg=BG2)
+        title_f.pack(side="left")
+        tk.Label(title_f, text="LLC Scanner", bg=BG2, fg=FG,
+                 font=("Helvetica", 16, "bold")).pack(anchor="w")
+        tk.Label(title_f, text="v1-beta2  \u2022  \u00a9 2026 Kyle Fernandez",
+                 bg=BG2, fg=DIM, font=("Helvetica", 9)).pack(anchor="w")
+        tk.Label(title_f, text="LowLatencyCards",
+                 bg=BG2, fg=DIM, font=("Helvetica", 9, "italic")).pack(anchor="w")
+
+        # ── Credits table ──
+        credits_f = tk.Frame(win, bg=BG, padx=24, pady=16)
+        credits_f.pack(fill="x")
+
+        tk.Label(credits_f, text="Credits & Open-Source Resources",
+                 bg=BG, fg=FG, font=("Helvetica", 10, "bold")).pack(anchor="w", pady=(0, 10))
+
+        _CREDITS = [
+            ("TCGdex",         "Card data & images (tcgdex.net)"),
+            ("TCGPlayer",      "Market pricing data via TCGdex"),
+            ("CardMarket",     "EU pricing fallback via TCGdex"),
+            ("Frankfurter",    "Forex rates — api.frankfurter.app"),
+            ("Pillow",         "Image loading & processing"),
+            ("imagehash",      "Perceptual hashing (phash/ahash/dhash/whash)"),
+            ("OpenCV",         "Card edge detection & preprocessing"),
+            ("NumPy",          "Vectorised hash matching"),
+            ("requests",       "HTTP client for API calls"),
+            ("tkinterweb",     "HTML preview in description editor"),
+            ("Inno Setup",     "Windows installer builder"),
+            ("PyInstaller",    "Launcher executable packaging"),
+            ("Claude AI",      "Vibe-coded with Anthropic Claude"),
+        ]
+
+        for name, desc in _CREDITS:
+            row = tk.Frame(credits_f, bg=BG)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=name, bg=BG, fg=LINK,
+                     font=("Helvetica", 9, "bold"),
+                     width=14, anchor="w").pack(side="left")
+            tk.Label(row, text=desc, bg=BG, fg=DIM,
+                     font=("Helvetica", 9), anchor="w").pack(side="left")
+
+        # ── Close button ──
+        btn_f = tk.Frame(win, bg=BG, pady=10)
+        btn_f.pack(fill="x")
+        tk.Button(btn_f, text="Close", command=win.destroy,
+                  bg="#0f3460", fg="white", relief="flat",
+                  font=("Helvetica", 10), cursor="hand2",
+                  activebackground="#533483",
+                  padx=20, pady=5).pack()
+
+        win.update_idletasks()
+        # Centre over the main window
+        mw = self.winfo_width();  mh = self.winfo_height()
+        mx = self.winfo_rootx(); my = self.winfo_rooty()
+        ww = win.winfo_width();  wh = win.winfo_height()
+        win.geometry(f"+{mx + (mw - ww)//2}+{my + (mh - wh)//2}")
 
     def _open_help(self):
         """Open the Help documentation window."""
