@@ -97,7 +97,8 @@ class CardIdentifierApp(tk.Tk):
         self._preview_cache: dict[str, ImageTk.PhotoImage] = {}
         self._hover_after_id: str | None = None
         self._hover_toplevel: tk.Toplevel | None = None
-        self._batch_name_var = tk.StringVar()
+        self._batch_name_var  = tk.StringVar()
+        self._price_mult_var  = tk.StringVar(value="1.00")
 
         # Load saved column widths (must happen before _build_ui)
         self._COL_W = self._load_col_widths()
@@ -359,7 +360,8 @@ class CardIdentifierApp(tk.Tk):
         # ---- Toolbar row 2: batch name ----
         name_row = tk.Frame(parent, bg="#16213e")
         name_row.grid(row=2, column=0, sticky="ew", padx=10, pady=(2, 4))
-        name_row.columnconfigure(1, weight=1)
+        name_row.columnconfigure(1, weight=1)   # batch name entry expands
+        # columns 2 & 3 are fixed-width (× label and multiplier entry)
 
         tk.Label(name_row, text="Batch Name:", bg="#16213e", fg="#a0a0b0",
                  font=("Helvetica", 10)).grid(row=0, column=0, sticky="w", padx=(0, 8))
@@ -367,6 +369,14 @@ class CardIdentifierApp(tk.Tk):
                                     bg="#0d0d1a", fg="white", insertbackground="white",
                                     relief="flat", font=("Helvetica", 10))
         batch_name_entry.grid(row=0, column=1, sticky="ew", ipady=4)
+
+        tk.Label(name_row, text="Price ×", bg="#16213e", fg="#a0a0b0",
+                 font=("Helvetica", 10)).grid(row=0, column=2, sticky="w", padx=(14, 4))
+        mult_entry = tk.Entry(name_row, textvariable=self._price_mult_var,
+                              bg="#0d0d1a", fg="white", insertbackground="white",
+                              relief="flat", font=("Helvetica", 10),
+                              justify="center", width=6)
+        mult_entry.grid(row=0, column=3, ipady=4)
 
         def _on_batch_name_change(*_):
             """Re-compute the custom label for every row when the batch name changes."""
@@ -378,6 +388,14 @@ class CardIdentifierApp(tk.Tk):
                     lw.set(lbl)
 
         self._batch_name_var.trace_add("write", _on_batch_name_change)
+
+        def _on_mult_change(*_):
+            """Re-apply the multiplier to all non-manually-edited price fields."""
+            for br in self._batch_rows:
+                if br.widgets and not br.widgets.get("price_user_edited", [False])[0]:
+                    self._refresh_price(br)
+
+        self._price_mult_var.trace_add("write", _on_mult_change)
 
         # ---- Toolbar row 3: status + progress bar ----
         prog_row = tk.Frame(parent, bg="#16213e")
@@ -1113,7 +1131,9 @@ class CardIdentifierApp(tk.Tk):
             card_id = candidate.get("card_id", "")
             price, source = fetch_price(card_id, _finish_var.get())
             if price is not None and not _edited[0]:
-                self.after(0, lambda: _price_var.set(f"{price:.2f}"))
+                mult  = self._get_price_mult()
+                final = price * mult
+                self.after(0, lambda p=final: _price_var.set(f"{p:.2f}"))
                 self.after(0, lambda: _source_var.set(source))
 
         if top:
@@ -1782,6 +1802,14 @@ class CardIdentifierApp(tk.Tk):
         if row in self._batch_rows:
             self._batch_rows.remove(row)
 
+    def _get_price_mult(self) -> float:
+        """Return the current price multiplier, clamped to [0.01, 100]. Defaults to 1.0."""
+        try:
+            v = float(self._price_mult_var.get())
+            return max(0.01, min(v, 100.0))
+        except (ValueError, tk.TclError):
+            return 1.0
+
     def _refresh_price(self, row: BatchRow):
         """Fetch the market price for the current candidate and update the price cell."""
         w = row.widgets
@@ -1799,7 +1827,9 @@ class CardIdentifierApp(tk.Tk):
             from prices.fetcher import fetch_price
             price, source = fetch_price(card_id, finish)
             if price is not None:
-                self.after(0, lambda: w["price_var"].set(f"{price:.2f}"))
+                mult = self._get_price_mult()
+                final = price * mult
+                self.after(0, lambda p=final: w["price_var"].set(f"{p:.2f}"))
                 self.after(0, lambda: w["source_label_var"].set(source))
             else:
                 self.after(0, lambda: w["source_label_var"].set("No price found"))
