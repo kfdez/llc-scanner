@@ -1055,25 +1055,6 @@ class CardIdentifierApp(tk.Tk):
         price_entry.bind("<FocusIn>",  lambda e: None)  # mark entry as active target
         price_entry.bind("<Key>",      lambda e: _price_user_edited.__setitem__(0, True) or source_label_var.set(""))
 
-        # Auto-fetch price in background for the initial candidate
-        def _auto_fetch_price(candidate, _finish_var=finish_var,
-                               _price_var=price_var,
-                               _source_var=source_label_var,
-                               _edited=_price_user_edited):
-            if _edited[0]:
-                return
-            from prices.fetcher import fetch_price
-            card_id = candidate.get("id", "")
-            price, source = fetch_price(card_id, _finish_var.get())
-            if price is not None and not _edited[0]:
-                self.after(0, lambda: _price_var.set(f"{price:.2f}"))
-                self.after(0, lambda: _source_var.set(source))
-
-        if top:
-            threading.Thread(
-                target=_auto_fetch_price, args=(top,), daemon=True
-            ).start()
-
         # ── Name ──
         name_cell = _named_cell("name")
         name_lbl = _bind_mw(tk.Label(name_cell, text=top.get("name", "—"),
@@ -1121,6 +1102,26 @@ class CardIdentifierApp(tk.Tk):
         # Wire finish into title updates
         _finish_ref[0] = finish_var
         finish_var.trace_add("write", _update_title)
+
+        # Auto-fetch price in background now that finish_var exists
+        def _auto_fetch_price(candidate,
+                               _finish_var=finish_var,
+                               _price_var=price_var,
+                               _source_var=source_label_var,
+                               _edited=_price_user_edited):
+            if _edited[0]:
+                return
+            from prices.fetcher import fetch_price
+            card_id = candidate.get("id", "")
+            price, source = fetch_price(card_id, _finish_var.get())
+            if price is not None and not _edited[0]:
+                self.after(0, lambda: _price_var.set(f"{price:.2f}"))
+                self.after(0, lambda: _source_var.set(source))
+
+        if top:
+            threading.Thread(
+                target=_auto_fetch_price, args=(top,), daemon=True
+            ).start()
 
         # ── Edition dropdown (WotC era only — hidden for modern sets) ──
         edition_cell = _named_cell("edition")
