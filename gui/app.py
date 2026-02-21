@@ -49,7 +49,7 @@ class BatchRow:
 class CardIdentifierApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("LLC Scanner - v1-beta")
+        self.title("LLC Scanner - v1-beta2")
         self.configure(bg="#1a1a2e")
         self.geometry("1440x900")
         self.minsize(900, 600)
@@ -183,7 +183,7 @@ class CardIdentifierApp(tk.Tk):
         tk.Label(bottom, textvariable=self._db_info_var, bg="#16213e", fg="#555577",
                  font=("Helvetica", 9)).pack(side="left")
 
-        tk.Label(bottom, text="LLC Scanner  •  v1-beta  •  vibe coded with Claude AI  •  © 2026 Kyle Fernandez",
+        tk.Label(bottom, text="LLC Scanner  •  v1-beta2  •  vibe coded with Claude AI  •  © 2026 Kyle Fernandez",
                  bg="#16213e", fg="#555577",
                  font=("Helvetica", 9, "italic")).pack(side="right")
 
@@ -2451,7 +2451,7 @@ TROUBLESHOOTING
 
 
 ===================================================================
-LLC Scanner  v1-beta  -  (c) 2026 Kyle Fernandez  -  LowLatencyCards
+LLC Scanner  v1-beta2  -  (c) 2026 Kyle Fernandez  -  LowLatencyCards
 ===================================================================
 """
 

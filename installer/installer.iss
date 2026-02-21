@@ -6,7 +6,7 @@
 ;   - installer\dist\app\*                         (staged app files)
 
 #define AppName      "LLC Scanner"
-#define AppVersion   "1.0"
+#define AppVersion   "1.0-beta2"
 #define AppPublisher "kfdez"
 #define AppURL       "https://github.com/kfdez/llc-scanner"
 #define AppExeName   "launcher.exe"
