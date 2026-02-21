@@ -1786,9 +1786,9 @@ class CardIdentifierApp(tk.Tk):
             w["edition_cb"].place_forget()
             w["edition_var"].set("Unlimited")
 
-        # Refresh price for new candidate (unless user has manually edited it)
-        if not w.get("price_user_edited", [False])[0]:
-            self._refresh_price(row)
+        # Always refresh price when cycling to a new candidate.
+        # _refresh_price resets price_user_edited before fetching.
+        self._refresh_price(row)
 
     def _cycle_match(self, row: BatchRow, delta: int):
         """Step through candidates (±1) with wraparound and refresh the row."""
