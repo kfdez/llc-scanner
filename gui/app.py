@@ -1033,14 +1033,12 @@ class CardIdentifierApp(tk.Tk):
                                insertbackground="white",
                                relief="flat", font=("Helvetica", 10),
                                justify="right")
-        price_entry.place(relx=0.5, rely=0.42, anchor="center", relwidth=0.92)
+        price_entry.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.92)
 
-        # Small label below the price entry showing the price source
+        # source_label_var holds the tooltip text (e.g. "TCGPlayer (USD->CAD)")
+        # shown on hover — no persistent label in the cell
         source_label_var = tk.StringVar(value="")
-        source_lbl = tk.Label(price_cell, textvariable=source_label_var,
-                              bg=bg, fg="#555577",
-                              font=("Helvetica", 7), anchor="center")
-        source_lbl.place(relx=0.5, rely=0.72, anchor="center", relwidth=0.98)
+        self._attach_price_tooltip(price_entry, source_label_var)
 
         # Track whether the user has manually edited the price (suppress auto-fill if so)
         _price_user_edited = [False]
@@ -1465,7 +1463,6 @@ class CardIdentifierApp(tk.Tk):
             "price_var":         price_var,
             "price_entry":       price_entry,
             "source_label_var":  source_label_var,
-            "source_lbl":        source_lbl,
             "price_user_edited": _price_user_edited,
             "cond_var":   cond_var,
             "desc_var":          desc_var,
@@ -1632,6 +1629,90 @@ class CardIdentifierApp(tk.Tk):
             except Exception:
                 pass
             self._hover_toplevel = None
+
+    # ------------------------------------------------------------------
+    # Price-source tooltip
+    # ------------------------------------------------------------------
+
+    def _attach_price_tooltip(self, widget: tk.Widget, source_var: tk.StringVar):
+        """Show a small dark tooltip with the price source after 0.6 s of hovering.
+
+        The tooltip reads from source_var at display time so it always reflects
+        the current value (updated by the background fetch thread).
+        Only binds once — safe to call again if the widget is reused.
+        """
+        if getattr(widget, "_price_tip_bound", False):
+            return
+        widget._price_tip_bound = True          # type: ignore[attr-defined]
+        widget._price_source_var = source_var   # type: ignore[attr-defined]
+
+        _after_id: list[str | None] = [None]
+        _tip_win:  list             = [None]
+
+        def _show():
+            _after_id[0] = None
+            text = getattr(widget, "_price_source_var", source_var).get()
+            if not text or text == "Fetching...":
+                return
+
+            # Destroy any existing tip
+            if _tip_win[0]:
+                try:
+                    _tip_win[0].destroy()
+                except Exception:
+                    pass
+                _tip_win[0] = None
+
+            try:
+                wx = widget.winfo_rootx()
+                wy = widget.winfo_rooty()
+                wh = widget.winfo_height()
+            except Exception:
+                return
+
+            tip = tk.Toplevel(self)
+            tip.overrideredirect(True)
+            tip.attributes("-topmost", True)
+            tip.configure(bg="#1a1a2e")
+
+            lbl = tk.Label(tip, text=text,
+                           bg="#1a1a2e", fg="#aaaadd",
+                           font=("Helvetica", 8),
+                           padx=6, pady=3,
+                           relief="solid", bd=1)
+            lbl.pack()
+            tip.update_idletasks()
+            tw = tip.winfo_width()
+
+            # Centre below the widget
+            x = wx + widget.winfo_width() // 2 - tw // 2
+            y = wy + wh + 4
+            tip.geometry(f"+{x}+{y}")
+            _tip_win[0] = tip
+
+        def _hide():
+            if _after_id[0]:
+                try:
+                    self.after_cancel(_after_id[0])
+                except Exception:
+                    pass
+                _after_id[0] = None
+            if _tip_win[0]:
+                try:
+                    _tip_win[0].destroy()
+                except Exception:
+                    pass
+                _tip_win[0] = None
+
+        def _on_enter(_event):
+            _hide()
+            _after_id[0] = self.after(600, _show)
+
+        def _on_leave(_event):
+            _hide()
+
+        widget.bind("<Enter>", _on_enter, add="+")
+        widget.bind("<Leave>", _on_leave, add="+")
 
     def _refresh_row(self, row: BatchRow):
         """Update all text and image widgets in a batch row from the current candidate."""
