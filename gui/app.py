@@ -399,11 +399,11 @@ class CardIdentifierApp(tk.Tk):
         _HDR_COLS = [
             ("scan",    "Scan"),    ("ref",     "Ref"),
             ("title",   "Title"),   ("label",   "Label"),
+            ("qty",     "Qty"),     ("price",   "Price $"),
             ("name",    "Name"),    ("set",     "Set"),
             ("num",     "#/Total"), ("rarity",  "Rarity"),
             ("finish",  "Finish"),  ("edition", "Edition"),
-            ("conf",    "Conf"),    ("qty",     "Qty"),
-            ("price",   "Price $"), ("cond",    "Cond"),
+            ("conf",    "Conf"),    ("cond",    "Cond"),
             ("game",    "Game"),    ("desc",    "Desc"),
             ("actions", "Actions"),
         ]
@@ -1018,6 +1018,23 @@ class CardIdentifierApp(tk.Tk):
                                relief="flat", font=("Helvetica", 10))
         label_entry.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.92)
 
+        # ── Qty spinbox ──
+        qty_cell = _named_cell("qty")
+        qty_var = tk.StringVar(value="1")
+        qty_spin = ttk.Spinbox(qty_cell, from_=1, to=999, textvariable=qty_var,
+                                font=("Helvetica", 10))
+        qty_spin.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.90)
+
+        # ── Price entry ──
+        price_cell = _named_cell("price")
+        price_var = tk.StringVar()
+        price_entry = tk.Entry(price_cell, textvariable=price_var,
+                               bg="#0d0d1a", fg="white",
+                               insertbackground="white",
+                               relief="flat", font=("Helvetica", 10),
+                               justify="right")
+        price_entry.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.92)
+
         # ── Name ──
         name_cell = _named_cell("name")
         name_lbl = _bind_mw(tk.Label(name_cell, text=top.get("name", "—"),
@@ -1085,23 +1102,6 @@ class CardIdentifierApp(tk.Tk):
                                       bg=bg, fg=CONF_COLORS.get(conf, "#888"),
                                       font=("Helvetica", 10, "bold"), anchor="w"))
         conf_lbl.place(x=4, y=0, relwidth=1.0, relheight=1.0)
-
-        # ── Qty spinbox ──
-        qty_cell = _named_cell("qty")
-        qty_var = tk.StringVar(value="1")
-        qty_spin = ttk.Spinbox(qty_cell, from_=1, to=999, textvariable=qty_var,
-                                font=("Helvetica", 10))
-        qty_spin.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.90)
-
-        # ── Price entry ──
-        price_cell = _named_cell("price")
-        price_var = tk.StringVar()
-        price_entry = tk.Entry(price_cell, textvariable=price_var,
-                               bg="#0d0d1a", fg="white",
-                               insertbackground="white",
-                               relief="flat", font=("Helvetica", 10),
-                               justify="right")
-        price_entry.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.92)
 
         def _tab_to_next_row(widget_key: str, event=None):
             """On Tab, move focus to the same column widget in the next batch row."""
