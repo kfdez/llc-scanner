@@ -1033,14 +1033,14 @@ class CardIdentifierApp(tk.Tk):
                                insertbackground="white",
                                relief="flat", font=("Helvetica", 10),
                                justify="right")
-        price_entry.place(relx=0.5, rely=0.35, anchor="center", relwidth=0.92)
+        price_entry.place(relx=0.5, rely=0.42, anchor="center", relwidth=0.92)
 
         # Small label below the price entry showing the price source
         source_label_var = tk.StringVar(value="")
         source_lbl = tk.Label(price_cell, textvariable=source_label_var,
                               bg=bg, fg="#555577",
                               font=("Helvetica", 7), anchor="center")
-        source_lbl.place(relx=0.5, rely=0.78, anchor="center", relwidth=0.98)
+        source_lbl.place(relx=0.5, rely=0.72, anchor="center", relwidth=0.98)
 
         # Track whether the user has manually edited the price (suppress auto-fill if so)
         _price_user_edited = [False]
@@ -1112,7 +1112,7 @@ class CardIdentifierApp(tk.Tk):
             if _edited[0]:
                 return
             from prices.fetcher import fetch_price
-            card_id = candidate.get("id", "")
+            card_id = candidate.get("card_id", "")
             price, source = fetch_price(card_id, _finish_var.get())
             if price is not None and not _edited[0]:
                 self.after(0, lambda: _price_var.set(f"{price:.2f}"))
@@ -1707,7 +1707,7 @@ class CardIdentifierApp(tk.Tk):
         if not w:
             return
         top = row.candidates[row.current_idx] if row.candidates else {}
-        card_id = top.get("id", "")
+        card_id = top.get("card_id", "")
         finish  = w["finish_var"].get()
 
         # Reset user-edited flag so we can update the price
