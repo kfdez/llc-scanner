@@ -1981,6 +1981,12 @@ class CardIdentifierApp(tk.Tk):
                 except Exception:
                     synthetic["variants"] = None
 
+            # If variants are still missing (card never seen by matcher),
+            # run enrich_result to fetch from TCGdex and cache in DB.
+            if synthetic["variants"] is None:
+                from identifier.enricher import enrich_result
+                enrich_result(synthetic)
+
             # Insert at the front of candidates so ◀/▶ still works
             row.candidates.insert(0, synthetic)
             row.current_idx = 0
