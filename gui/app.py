@@ -1025,7 +1025,7 @@ class CardIdentifierApp(tk.Tk):
                                 font=("Helvetica", 10))
         qty_spin.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.90)
 
-        # ── Price entry ──
+        # ── Price entry + source label ──
         price_cell = _named_cell("price")
         price_var = tk.StringVar()
         price_entry = tk.Entry(price_cell, textvariable=price_var,
@@ -1033,7 +1033,46 @@ class CardIdentifierApp(tk.Tk):
                                insertbackground="white",
                                relief="flat", font=("Helvetica", 10),
                                justify="right")
-        price_entry.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.92)
+        price_entry.place(relx=0.5, rely=0.35, anchor="center", relwidth=0.92)
+
+        # Small label below the price entry showing the price source
+        source_label_var = tk.StringVar(value="")
+        source_lbl = tk.Label(price_cell, textvariable=source_label_var,
+                              bg=bg, fg="#555577",
+                              font=("Helvetica", 7), anchor="center")
+        source_lbl.place(relx=0.5, rely=0.78, anchor="center", relwidth=0.98)
+
+        # Track whether the user has manually edited the price (suppress auto-fill if so)
+        _price_user_edited = [False]
+
+        def _on_price_manual_edit(*_):
+            # Only flag as user-edited when the entry widget itself has focus
+            if price_entry == price_cell.focus_get() if hasattr(price_cell, "focus_get") else False:
+                _price_user_edited[0] = True
+                source_label_var.set("")
+
+        price_var.trace_add("write", _on_price_manual_edit)
+        price_entry.bind("<FocusIn>",  lambda e: None)  # mark entry as active target
+        price_entry.bind("<Key>",      lambda e: _price_user_edited.__setitem__(0, True) or source_label_var.set(""))
+
+        # Auto-fetch price in background for the initial candidate
+        def _auto_fetch_price(candidate, _finish_var=finish_var,
+                               _price_var=price_var,
+                               _source_var=source_label_var,
+                               _edited=_price_user_edited):
+            if _edited[0]:
+                return
+            from prices.fetcher import fetch_price
+            card_id = candidate.get("id", "")
+            price, source = fetch_price(card_id, _finish_var.get())
+            if price is not None and not _edited[0]:
+                self.after(0, lambda: _price_var.set(f"{price:.2f}"))
+                self.after(0, lambda: _source_var.set(source))
+
+        if top:
+            threading.Thread(
+                target=_auto_fetch_price, args=(top,), daemon=True
+            ).start()
 
         # ── Name ──
         name_cell = _named_cell("name")
@@ -1389,6 +1428,9 @@ class CardIdentifierApp(tk.Tk):
         _bind_mw(tk.Button(action_frame, text="?",
                             command=lambda r=row: self._open_search_dialog(r),
                             **abtn_kw)).pack(side="left", padx=(0, 2))
+        _bind_mw(tk.Button(action_frame, text="$",
+                            command=lambda r=row: self._refresh_price(r),
+                            **abtn_kw)).pack(side="left", padx=(0, 2))
         _bind_mw(tk.Button(action_frame, text="X",
                             command=lambda r=row, f=frame: self._delete_row(r, f),
                             bg="#3a1a1a", fg="#ff6666", relief="flat",
@@ -1419,8 +1461,11 @@ class CardIdentifierApp(tk.Tk):
             "conf":       conf_lbl,
             "qty_var":    qty_var,
             "qty_spin":   qty_spin,
-            "price_var":  price_var,
-            "price_entry": price_entry,
+            "price_var":         price_var,
+            "price_entry":       price_entry,
+            "source_label_var":  source_label_var,
+            "source_lbl":        source_lbl,
+            "price_user_edited": _price_user_edited,
             "cond_var":   cond_var,
             "desc_var":          desc_var,
             "desc_render":       _render_desc,
@@ -1638,6 +1683,10 @@ class CardIdentifierApp(tk.Tk):
             w["edition_cb"].place_forget()
             w["edition_var"].set("Unlimited")
 
+        # Refresh price for new candidate (unless user has manually edited it)
+        if not w.get("price_user_edited", [False])[0]:
+            self._refresh_price(row)
+
     def _cycle_match(self, row: BatchRow, delta: int):
         """Step through candidates (±1) with wraparound and refresh the row."""
         if not row.candidates:
@@ -1650,6 +1699,30 @@ class CardIdentifierApp(tk.Tk):
         frame.destroy()
         if row in self._batch_rows:
             self._batch_rows.remove(row)
+
+    def _refresh_price(self, row: BatchRow):
+        """Fetch the market price for the current candidate and update the price cell."""
+        w = row.widgets
+        if not w:
+            return
+        top = row.candidates[row.current_idx] if row.candidates else {}
+        card_id = top.get("id", "")
+        finish  = w["finish_var"].get()
+
+        # Reset user-edited flag so we can update the price
+        w["price_user_edited"][0] = False
+        w["source_label_var"].set("Fetching...")
+
+        def worker():
+            from prices.fetcher import fetch_price
+            price, source = fetch_price(card_id, finish)
+            if price is not None:
+                self.after(0, lambda: w["price_var"].set(f"{price:.2f}"))
+                self.after(0, lambda: w["source_label_var"].set(source))
+            else:
+                self.after(0, lambda: w["source_label_var"].set("No price found"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ------------------------------------------------------------------
     # Batch search dialog
