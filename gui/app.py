@@ -1000,8 +1000,11 @@ class CardIdentifierApp(tk.Tk):
             r = candidate.get("rarity", "") or ""
             if r and r.lower() != "none":
                 parts.append(r)
-            # Include finish only for notable holo variants
-            if finish and finish in _HOLO_FINISHES:
+            # Include finish only for notable holo variants.
+            # Strip parenthetical suffix before the set check so granular labels
+            # like "Holo (Shadowless)" also match, but append the full label.
+            _finish_base = finish.split("(")[0].strip() if finish else ""
+            if _finish_base and _finish_base in _HOLO_FINISHES:
                 parts.append(finish)
             short_cond = self._COND_SHORT.get(cond, cond)
             if short_cond:
