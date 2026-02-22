@@ -827,6 +827,18 @@ class CardIdentifierApp(tk.Tk):
         self._batch_rows.append(row)
         self._build_batch_row(self._batch_inner, row)
 
+        # Enrich the top candidate in the background so variants_detailed
+        # is available for the finish dropdown.  _refresh_row is called on
+        # the main thread once enrichment completes so the dropdown updates.
+        if results:
+            def _enrich_worker(candidate, _row=row):
+                from identifier.enricher import enrich_result
+                enrich_result(candidate)          # mutates candidate in-place
+                self.after(0, self._refresh_row, _row)
+            threading.Thread(
+                target=_enrich_worker, args=(results[0],), daemon=True
+            ).start()
+
     def _on_batch_complete(self, total: int):
         self._batch_running = False
         self._batch_bar.stop()
@@ -1843,6 +1855,15 @@ class CardIdentifierApp(tk.Tk):
             return
         row.current_idx = (row.current_idx + delta) % len(row.candidates)
         self._refresh_row(row)
+
+        # If the newly selected candidate hasn't been enriched yet, do so now.
+        candidate = row.candidates[row.current_idx]
+        if candidate.get("variants_detailed") is None:
+            def _enrich_worker(c=candidate, _row=row):
+                from identifier.enricher import enrich_result
+                enrich_result(c)
+                self.after(0, self._refresh_row, _row)
+            threading.Thread(target=_enrich_worker, daemon=True).start()
 
     def _delete_row(self, row: BatchRow, frame: tk.Frame):
         """Remove a batch row from the UI and internal list."""
