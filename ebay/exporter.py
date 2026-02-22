@@ -290,7 +290,7 @@ def build_row(
     card_type = _parse_types(candidate.get("types", ""))
 
     # Title from widget (already built by _build_title)
-    title = widgets.get("title") and widgets["title"].cget("text") or ""
+    title = (widgets.get("title_var") and widgets["title_var"].get()) or ""
 
     # Zero-pad label row number portion to 3 digits if label ends with -N
     # e.g. "BatchName-1" → "BatchName-001"
