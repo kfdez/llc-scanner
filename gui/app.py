@@ -799,6 +799,9 @@ class CardIdentifierApp(tk.Tk):
                     results = self._run_identify(front_path)
                 except Exception:
                     results = []
+                if results:
+                    from identifier.enricher import enrich_result
+                    enrich_result(results[0])  # populate variants_detailed before UI is built
                 self.after(0, self._on_batch_result, front_path, results,
                            i + 1, total, back_path)
         else:
@@ -808,6 +811,9 @@ class CardIdentifierApp(tk.Tk):
                     results = self._run_identify(path)
                 except Exception:
                     results = []
+                if results:
+                    from identifier.enricher import enrich_result
+                    enrich_result(results[0])  # populate variants_detailed before UI is built
                 self.after(0, self._on_batch_result, path, results, i + 1, total, "")
         self.after(0, self._on_batch_complete, total)
 
@@ -826,18 +832,6 @@ class CardIdentifierApp(tk.Tk):
                        back_image_path=back_path)
         self._batch_rows.append(row)
         self._build_batch_row(self._batch_inner, row)
-
-        # Enrich the top candidate in the background so variants_detailed
-        # is available for the finish dropdown.  _refresh_row is called on
-        # the main thread once enrichment completes so the dropdown updates.
-        if results:
-            def _enrich_worker(candidate, _row=row):
-                from identifier.enricher import enrich_result
-                enrich_result(candidate)          # mutates candidate in-place
-                self.after(0, self._refresh_row, _row)
-            threading.Thread(
-                target=_enrich_worker, args=(results[0],), daemon=True
-            ).start()
 
     def _on_batch_complete(self, total: int):
         self._batch_running = False
@@ -2036,22 +2030,30 @@ class CardIdentifierApp(tk.Tk):
                 "types":            card["types"] if "types" in card.keys() else "",
                 "image_url":        card["image_url"] or "",
                 "local_image_path": card["local_image_path"] or "",
-                "variants":         card["variants"] if "variants" in card.keys() else None,
-                "set_total":        card["set_total"] if "set_total" in card.keys() else None,
-                "distance":         0.0,
-                "confidence":       "high",   # user manually confirmed
+                "variants":          card["variants"]          if "variants"          in card.keys() else None,
+                "set_total":         card["set_total"]         if "set_total"         in card.keys() else None,
+                "variants_detailed": card["variants_detailed"] if "variants_detailed" in card.keys() else None,
+                "distance":          0.0,
+                "confidence":        "high",   # user manually confirmed
             }
+            import json as _json
             # Decode variants JSON if it came back as a string
             if isinstance(synthetic["variants"], str):
-                import json as _json
                 try:
                     synthetic["variants"] = _json.loads(synthetic["variants"])
                 except Exception:
                     synthetic["variants"] = None
 
-            # If variants are still missing (card never seen by matcher),
-            # run enrich_result to fetch from TCGdex and cache in DB.
-            if synthetic["variants"] is None:
+            # Decode variants_detailed JSON if it came back as a string
+            if isinstance(synthetic["variants_detailed"], str):
+                try:
+                    synthetic["variants_detailed"] = _json.loads(synthetic["variants_detailed"])
+                except Exception:
+                    synthetic["variants_detailed"] = None
+
+            # Enrich if variants or variants_detailed is missing —
+            # variants_detailed is NULL for cards not yet seen since the feature was added.
+            if synthetic["variants"] is None or synthetic["variants_detailed"] is None:
                 from identifier.enricher import enrich_result
                 enrich_result(synthetic)
 
