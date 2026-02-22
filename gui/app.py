@@ -962,7 +962,8 @@ class CardIdentifierApp(tk.Tk):
                                       insertbackground="#d0d0e8",
                                       selectbackground="#2a4a7a",
                                       spacing1=2, spacing3=2))
-        title_txt.place(x=4, y=0, relwidth=1.0, relheight=1.0)
+        # Leave 4 px padding left/right and 2 px top/bottom; counter is lifted on top
+        title_txt.place(x=4, y=2, relwidth=1.0, relheight=1.0, width=-8, height=-4)
 
         def _set_title(text: str):
             """Write text into the title Text widget without triggering the user-edit flag."""
@@ -997,6 +998,7 @@ class CardIdentifierApp(tk.Tk):
                                   font=("Helvetica", 7, "bold"),
                                   anchor="e")
         title_counter.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
+        title_counter.lift()   # always render above the Text widget
 
         def _update_title_counter(text: str):
             n = len(text)
