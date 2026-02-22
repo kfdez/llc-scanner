@@ -950,14 +950,21 @@ class CardIdentifierApp(tk.Tk):
             self._set_thumb(thumb_ref, ref_path, bg)
             self._attach_hover_preview(thumb_ref, ref_path)
 
-        # ── Title (auto-generated: Name · #/Total · Set · Rarity · Cond) ──
+        # ── Title (auto-generated, manually editable) ──
         title_cell = _named_cell("title")
-        title_lbl = _bind_mw(tk.Label(title_cell, text="",
-                                       bg=bg, fg="#d0d0e8",
-                                       font=("Helvetica", 10),
-                                       anchor="w", justify="left",
-                                       wraplength=cw["title"] - 8))
-        title_lbl.place(x=4, y=0, relwidth=1.0, relheight=1.0)
+        title_var = tk.StringVar()
+        _title_user_edited = [False]
+
+        def _on_title_edit(*_):
+            _title_user_edited[0] = True
+        title_var.trace_add("write", _on_title_edit)
+
+        title_entry = _bind_mw(tk.Entry(title_cell, textvariable=title_var,
+                                         bg=bg, fg="#d0d0e8",
+                                         font=("Helvetica", 10),
+                                         relief="flat", bd=0,
+                                         insertbackground="#d0d0e8"))
+        title_entry.place(x=4, y=0, relwidth=1.0, relheight=1.0)
 
         # Character counter — hidden until title approaches 80 chars
         _TITLE_WARN  = 65   # show counter from here
@@ -1024,6 +1031,8 @@ class CardIdentifierApp(tk.Tk):
         _set_var_ref:  list = [None]   # holds set_var once created
 
         def _update_title(*_):
+            if _title_user_edited[0]:
+                return
             sv = _set_var_ref[0]
             t = _build_title(
                 row.candidates[row.current_idx] if row.candidates else {},
@@ -1032,8 +1041,17 @@ class CardIdentifierApp(tk.Tk):
                 _finish_ref[0].get()  if _finish_ref[0]  else "",
                 set_name_override=sv.get() if sv else None,
             )
-            title_lbl.config(text=t)
+            _title_user_edited[0] = False
+            title_var.set(t)
+            _title_user_edited[0] = False
             _update_title_counter(t)
+
+        # Pre-populate title now that _update_title is defined
+        _initial_title = _build_title(top, "Near Mint") if top else ""
+        _title_user_edited[0] = False
+        title_var.set(_initial_title)
+        _title_user_edited[0] = False
+        _update_title_counter(_initial_title)
 
         # ── Custom Label (Batch Name + row number, editable) ──
         label_cell = _named_cell("label")
@@ -1474,7 +1492,9 @@ class CardIdentifierApp(tk.Tk):
             "frame":        frame,
             "thumb_scan":   thumb_scan,
             "thumb_ref":    thumb_ref,
-            "title":               title_lbl,
+            "title":               title_entry,
+            "title_var":           title_var,
+            "title_user_edited":   _title_user_edited,
             "build_title":         _build_title,
             "update_title_counter": _update_title_counter,
             "label_var":    label_var,
@@ -1804,11 +1824,14 @@ class CardIdentifierApp(tk.Tk):
         w["set_var"].set(top.get("set_name", "") or "")
         w["number"].config(text=self._fmt_number(top))
         w["rarity"].config(text=top.get("rarity", "—") or "—")
-        _t = w["build_title"](top, w["cond_var"].get(),
-                              w["edition_var"].get(), w["finish_var"].get(),
-                              set_name_override=w["set_var"].get())
-        w["title"].config(text=_t)
-        w["update_title_counter"](_t)
+        if not w["title_user_edited"][0]:
+            _t = w["build_title"](top, w["cond_var"].get(),
+                                  w["edition_var"].get(), w["finish_var"].get(),
+                                  set_name_override=w["set_var"].get())
+            w["title_user_edited"][0] = False
+            w["title_var"].set(_t)
+            w["title_user_edited"][0] = False
+            w["update_title_counter"](_t)
 
         conf = top.get("confidence", "low") if top else "low"
         w["conf"].config(text=f"● {conf.upper()}", fg=CONF_COLORS.get(conf, "#888"))
@@ -1851,6 +1874,9 @@ class CardIdentifierApp(tk.Tk):
         if not row.candidates:
             return
         row.current_idx = (row.current_idx + delta) % len(row.candidates)
+        # Reset manual-edit flag so the new candidate's title is auto-generated
+        if row.widgets:
+            row.widgets["title_user_edited"][0] = False
         self._refresh_row(row)
 
         # If the newly selected candidate hasn't been enriched yet, do so now.
@@ -2063,6 +2089,9 @@ class CardIdentifierApp(tk.Tk):
             # Insert at the front of candidates so ◀/▶ still works
             row.candidates.insert(0, synthetic)
             row.current_idx = 0
+            # Reset manual-edit flag so the new card's title is auto-generated
+            if row.widgets:
+                row.widgets["title_user_edited"][0] = False
             self._refresh_row(row)
             dialog.destroy()
 
