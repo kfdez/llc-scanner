@@ -26,8 +26,9 @@ def migrate_db():
     Safe to call repeatedly — each ALTER is wrapped in try/except.
     """
     new_columns = [
-        ("variants",  "TEXT"),   # JSON: {normal,reverse,holo,firstEdition,wPromo}
-        ("set_total", "TEXT"),   # total cards in set, e.g. "102"
+        ("variants",          "TEXT"),   # JSON: {normal,reverse,holo,firstEdition,wPromo}
+        ("set_total",         "TEXT"),   # total cards in set, e.g. "102"
+        ("variants_detailed", "TEXT"),   # JSON array from TCGdex REST API
     ]
     with get_connection() as conn:
         for col, col_type in new_columns:
@@ -281,18 +282,22 @@ def get_all_cards() -> list[sqlite3.Row]:
     with get_connection() as conn:
         return conn.execute(
             "SELECT id, name, set_id, set_name, number, rarity, category, hp, types, "
-            "image_url, local_image_path, variants, set_total "
+            "image_url, local_image_path, variants, set_total, variants_detailed "
             "FROM cards ORDER BY name"
         ).fetchall()
 
 
 def update_card_details(card_id: str, variants_json: str | None, set_total: str | None,
-                        types_json: str | None = None) -> None:
+                        types_json: str | None = None,
+                        variants_detailed_json: str | None = None) -> None:
     """Store enriched variant, set-total, and types data fetched from the full TCGdex Card object."""
     with get_connection() as conn:
         conn.execute(
-            "UPDATE cards SET variants = ?, set_total = ?, types = COALESCE(?, types) WHERE id = ?",
-            (variants_json, set_total, types_json, card_id),
+            "UPDATE cards SET variants = ?, set_total = ?, "
+            "types = COALESCE(?, types), "
+            "variants_detailed = COALESCE(?, variants_detailed) "
+            "WHERE id = ?",
+            (variants_json, set_total, types_json, variants_detailed_json, card_id),
         )
 
 

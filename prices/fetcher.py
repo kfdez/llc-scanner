@@ -20,6 +20,16 @@ _FINISH_TO_TCGP: dict[str, str] = {
     "Non-Holo":         "normal",
 }
 
+
+def _finish_label_to_tcgp(finish: str) -> str:
+    """Map a finish label (possibly with subtype suffix) to a TCGPlayer variant key.
+
+    Strips any parenthetical suffix before lookup so granular labels like
+    ``"Holo (Shadowless)"`` or ``"Holo (1st Ed)"`` all resolve to ``"holofoil"``.
+    """
+    base = finish.split("(")[0].strip()   # "Holo (Shadowless)" → "Holo"
+    return _FINISH_TO_TCGP.get(base, _FINISH_TO_TCGP.get(finish, "normal"))
+
 # Fallback order when the preferred variant has no TCGPlayer price.
 # Ordered ascending by typical value so we err on the conservative side.
 _TCGP_FALLBACK_ORDER = ["normal", "reverseHolofoil", "holofoil"]
@@ -83,7 +93,7 @@ def fetch_price(card_id: str, finish: str) -> tuple[float | None, str | None]:
 
     # ── TCGPlayer (USD) ───────────────────────────────────────────────────────
     tcgp   = pricing.get("tcgplayer") or {}
-    wanted = _FINISH_TO_TCGP.get(finish, "normal")
+    wanted = _finish_label_to_tcgp(finish)
 
     # Try the preferred variant first, then fall back through the priority list
     others = [v for v in _TCGP_FALLBACK_ORDER if v != wanted]
@@ -97,7 +107,8 @@ def fetch_price(card_id: str, finish: str) -> tuple[float | None, str | None]:
 
     # ── CardMarket (EUR) fallback ─────────────────────────────────────────────
     cm = pricing.get("cardmarket") or {}
-    if finish in ("Holo", "Poke Ball Holo", "Master Ball Holo"):
+    _holo_base = finish.split("(")[0].strip()
+    if _holo_base in ("Holo", "Poke Ball Holo", "Master Ball Holo"):
         eur_price = cm.get("avg-holo") or cm.get("avg")
     else:
         eur_price = cm.get("avg")

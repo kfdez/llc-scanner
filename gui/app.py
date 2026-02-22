@@ -1505,23 +1505,70 @@ class CardIdentifierApp(tk.Tk):
 
     @staticmethod
     def _finish_options(top: dict) -> list[str]:
-        """Build finish dropdown options from variants dict."""
+        """Build finish dropdown options from variants_detailed (granular) or boolean flags (fallback).
+
+        variants_detailed entries are mapped to human labels:
+          type "holo"    → "Holo",        "normal" → "Non-Holo", "reverse" → "Reverse Holo"
+          subtype        → parenthetical suffix, e.g. "Holo (Shadowless)"
+          stamp          → appended to suffix, e.g. "Holo (Shadowless, 1st Ed)"
+
+        Poke Ball / Master Ball Holo are always appended as manual overrides.
+        """
+        _ALWAYS = ["Poke Ball Holo", "Master Ball Holo"]
+
+        # ── Path 1: granular variants_detailed ───────────────────────────────
+        import json as _json
+        vd = top.get("variants_detailed") if top else None
+        if isinstance(vd, str):
+            try:
+                vd = _json.loads(vd)
+            except Exception:
+                vd = None
+
+        if vd:
+            _TYPE_LABEL = {
+                "holo":    "Holo",
+                "normal":  "Non-Holo",
+                "reverse": "Reverse Holo",
+            }
+            _SUBTYPE_LABEL = {
+                "cosmos":                   "Cosmos",
+                "shadowless":               "Shadowless",
+                "unlimited":                "Unlimited",
+                "1999-2000-copyright":      "1999-2000",
+                "missing-expansion-symbol": "No Symbol",
+            }
+            _STAMP_LABEL = {
+                "1st-edition":    "1st Ed",
+                "pokemon-center": "Pokémon Center",
+            }
+            seen: set[str] = set()
+            opts: list[str] = []
+            for entry in vd:
+                base  = _TYPE_LABEL.get(entry.get("type", ""), "Holo")
+                parts: list[str] = []
+                sub   = _SUBTYPE_LABEL.get(entry.get("subtype", ""), "")
+                if sub:
+                    parts.append(sub)
+                for s in (entry.get("stamp") or []):
+                    sl = _STAMP_LABEL.get(s, s)
+                    if sl not in parts:
+                        parts.append(sl)
+                label = f"{base} ({', '.join(parts)})" if parts else base
+                if label not in seen:
+                    seen.add(label)
+                    opts.append(label)
+            return opts + _ALWAYS
+
+        # ── Path 2: boolean flag fallback ────────────────────────────────────
         variants = top.get("variants") if top else None
         if variants is None:
-            return ["Non-Holo", "Reverse Holo", "Holo",
-                    "Poke Ball Holo", "Master Ball Holo"]
+            return ["Non-Holo", "Reverse Holo", "Holo"] + _ALWAYS
         opts = []
-        if variants.get("normal"):
-            opts.append("Non-Holo")
-        if variants.get("reverse"):
-            opts.append("Reverse Holo")
-        if variants.get("holo"):
-            opts.append("Holo")
-        # Poke Ball / Master Ball holos are special print variants not tracked
-        # separately in TCGdex variants — always offer them as manual overrides.
-        opts += ["Poke Ball Holo", "Master Ball Holo"]
-        return opts or ["Non-Holo", "Reverse Holo", "Holo",
-                        "Poke Ball Holo", "Master Ball Holo"]
+        if variants.get("normal"):  opts.append("Non-Holo")
+        if variants.get("reverse"): opts.append("Reverse Holo")
+        if variants.get("holo"):    opts.append("Holo")
+        return (opts or ["Non-Holo", "Reverse Holo", "Holo"]) + _ALWAYS
 
     @staticmethod
     def _is_wotc_era(top: dict) -> bool:

@@ -22,6 +22,8 @@ enrich_result(result_dict)  →  result_dict (modified in-place, also returned)
 
 import json
 
+import requests as _requests
+
 from config import TCGDEX_LANGUAGE, IMAGE_QUALITY
 from db.database import get_card_by_id, update_card_details
 
@@ -74,7 +76,25 @@ def _fetch_full_card(card_id: str) -> dict | None:
         types = getattr(card, "types", None)
         types_json = json.dumps(types) if types else None
 
-        return {"variants_json": variants_json, "set_total": set_total, "types_json": types_json}
+        # ── variants_detailed (REST-only — SDK does not expose it) ────────────
+        variants_detailed_json = None
+        try:
+            r = _requests.get(
+                f"https://api.tcgdex.net/v2/en/cards/{card_id}", timeout=8
+            )
+            if r.status_code == 200:
+                vd = r.json().get("variants_detailed")
+                if vd:
+                    variants_detailed_json = json.dumps(vd)
+        except Exception:
+            pass
+
+        return {
+            "variants_json":          variants_json,
+            "set_total":              set_total,
+            "types_json":             types_json,
+            "variants_detailed_json": variants_detailed_json,
+        }
 
     except Exception:
         return None
@@ -100,9 +120,10 @@ def enrich_result(result: dict) -> dict:
     # ── Check DB cache first ──────────────────────────────────────────────────
     row = get_card_by_id(card_id)
     if row is not None:
-        cached_variants = row["variants"] if "variants" in row.keys() else None
-        cached_total    = row["set_total"] if "set_total" in row.keys() else None
-        cached_types    = row["types"]    if "types"    in row.keys() else None
+        cached_variants          = row["variants"]          if "variants"          in row.keys() else None
+        cached_total             = row["set_total"]         if "set_total"         in row.keys() else None
+        cached_types             = row["types"]             if "types"             in row.keys() else None
+        cached_variants_detailed = row["variants_detailed"] if "variants_detailed" in row.keys() else None
 
         if cached_variants is not None or cached_total is not None:
             # At least one field is cached — use whatever we have
@@ -112,16 +133,28 @@ def enrich_result(result: dict) -> dict:
                 result["variants"] = None
             result["set_total"] = cached_total
 
-            # types was added later — if still NULL in DB, fetch it now and cache it
-            if cached_types is None and card_id not in _failed_ids:
+            # types / variants_detailed may have been added later — re-fetch if missing
+            needs_refetch = (
+                (cached_types is None or cached_variants_detailed is None)
+                and card_id not in _failed_ids
+            )
+            if needs_refetch:
                 fetched = _fetch_full_card(card_id)
                 if fetched:
-                    cached_types = fetched.get("types_json")
-                    update_card_details(card_id, cached_variants, cached_total, cached_types)
+                    cached_types             = fetched.get("types_json")             or cached_types
+                    cached_variants_detailed = fetched.get("variants_detailed_json") or cached_variants_detailed
+                    update_card_details(card_id, cached_variants, cached_total,
+                                        cached_types, cached_variants_detailed)
                 else:
                     _failed_ids.add(card_id)
 
             result["types"] = cached_types or result.get("types", "")
+            try:
+                result["variants_detailed"] = (
+                    json.loads(cached_variants_detailed) if cached_variants_detailed else None
+                )
+            except (json.JSONDecodeError, TypeError):
+                result["variants_detailed"] = None
             return result
 
     # ── Cache miss — fetch from API (unless a previous attempt failed) ────────
@@ -135,14 +168,16 @@ def enrich_result(result: dict) -> dict:
         _failed_ids.add(card_id)
         result["variants"] = None
         result["set_total"] = None
+        result["variants_detailed"] = None
         return result
 
-    variants_json = fetched["variants_json"]
-    set_total     = fetched["set_total"]
-    types_json    = fetched.get("types_json")
+    variants_json          = fetched["variants_json"]
+    set_total              = fetched["set_total"]
+    types_json             = fetched.get("types_json")
+    variants_detailed_json = fetched.get("variants_detailed_json")
 
     # Persist to DB so subsequent identifies skip the API call
-    update_card_details(card_id, variants_json, set_total, types_json)
+    update_card_details(card_id, variants_json, set_total, types_json, variants_detailed_json)
 
     try:
         result["variants"] = json.loads(variants_json) if variants_json else None
@@ -150,5 +185,11 @@ def enrich_result(result: dict) -> dict:
         result["variants"] = None
     result["set_total"] = set_total
     result["types"]     = types_json or result.get("types", "")
+    try:
+        result["variants_detailed"] = (
+            json.loads(variants_detailed_json) if variants_detailed_json else None
+        )
+    except (json.JSONDecodeError, TypeError):
+        result["variants_detailed"] = None
 
     return result
