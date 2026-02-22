@@ -962,8 +962,9 @@ class CardIdentifierApp(tk.Tk):
                                       insertbackground="#d0d0e8",
                                       selectbackground="#2a4a7a",
                                       spacing1=2, spacing3=2))
-        # Leave 4 px padding left/right and 2 px top/bottom; counter is lifted on top
-        title_txt.place(x=4, y=2, relwidth=1.0, relheight=1.0, width=-8, height=-4)
+        # 4 px left inset, 38 px right inset (reserves space for the counter badge),
+        # 2 px top/bottom; counter is lifted on top via .lift()
+        title_txt.place(x=4, y=2, relwidth=1.0, relheight=1.0, width=-42, height=-4)
 
         def _set_title(text: str):
             """Write text into the title Text widget without triggering the user-edit flag."""
