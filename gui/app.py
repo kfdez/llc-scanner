@@ -973,13 +973,21 @@ class CardIdentifierApp(tk.Tk):
         def _get_title() -> str:
             return title_txt.get("1.0", "end-1c")
 
+        _NAV_KEYS = frozenset(("Left", "Right", "Up", "Down", "Home", "End",
+                               "Prior", "Next", "Shift_L", "Shift_R",
+                               "Control_L", "Control_R", "Alt_L", "Alt_R"))
+
         def _on_title_key(event):
-            # Only real character input marks it as user-edited (not arrow keys, ctrl, etc.)
-            if event.keysym not in ("Left", "Right", "Up", "Down", "Home", "End",
-                                    "Prior", "Next", "Shift_L", "Shift_R",
-                                    "Control_L", "Control_R", "Alt_L", "Alt_R"):
+            # Only real character input marks it as user-edited (not nav keys)
+            if event.keysym not in _NAV_KEYS:
                 _title_user_edited[0] = True
+
+        def _on_title_key_release(event):
+            # Update counter after every keystroke (text is updated by this point)
+            _update_title_counter(_get_title())
+
         title_txt.bind("<Key>", _on_title_key)
+        title_txt.bind("<KeyRelease>", _on_title_key_release)
 
         # Fake StringVar interface so _refresh_row / _update_title can call .set()
         class _TitleVar:
