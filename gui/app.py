@@ -950,21 +950,44 @@ class CardIdentifierApp(tk.Tk):
             self._set_thumb(thumb_ref, ref_path, bg)
             self._attach_hover_preview(thumb_ref, ref_path)
 
-        # ── Title (auto-generated, manually editable) ──
+        # ── Title (auto-generated, manually editable, word-wrapped) ──
         title_cell = _named_cell("title")
-        title_var = tk.StringVar()
         _title_user_edited = [False]
 
-        def _on_title_edit(*_):
-            _title_user_edited[0] = True
-        title_var.trace_add("write", _on_title_edit)
+        title_txt = _bind_mw(tk.Text(title_cell,
+                                      bg=bg, fg="#d0d0e8",
+                                      font=("Helvetica", 10),
+                                      relief="flat", bd=0,
+                                      wrap="word",
+                                      insertbackground="#d0d0e8",
+                                      selectbackground="#2a4a7a",
+                                      spacing1=2, spacing3=2))
+        title_txt.place(x=4, y=0, relwidth=1.0, relheight=1.0)
 
-        title_entry = _bind_mw(tk.Entry(title_cell, textvariable=title_var,
-                                         bg=bg, fg="#d0d0e8",
-                                         font=("Helvetica", 10),
-                                         relief="flat", bd=0,
-                                         insertbackground="#d0d0e8"))
-        title_entry.place(x=4, y=0, relwidth=1.0, relheight=1.0)
+        def _set_title(text: str):
+            """Write text into the title Text widget without triggering the user-edit flag."""
+            title_txt.delete("1.0", "end")
+            title_txt.insert("1.0", text)
+
+        def _get_title() -> str:
+            return title_txt.get("1.0", "end-1c")
+
+        def _on_title_key(event):
+            # Only real character input marks it as user-edited (not arrow keys, ctrl, etc.)
+            if event.keysym not in ("Left", "Right", "Up", "Down", "Home", "End",
+                                    "Prior", "Next", "Shift_L", "Shift_R",
+                                    "Control_L", "Control_R", "Alt_L", "Alt_R"):
+                _title_user_edited[0] = True
+        title_txt.bind("<Key>", _on_title_key)
+
+        # Fake StringVar interface so _refresh_row / _update_title can call .set()
+        class _TitleVar:
+            def set(self, text: str):  # noqa: A003
+                _set_title(text)
+            def get(self) -> str:
+                return _get_title()
+
+        title_var = _TitleVar()
 
         # Character counter — hidden until title approaches 80 chars
         _TITLE_WARN  = 65   # show counter from here
@@ -1492,7 +1515,7 @@ class CardIdentifierApp(tk.Tk):
             "frame":        frame,
             "thumb_scan":   thumb_scan,
             "thumb_ref":    thumb_ref,
-            "title":               title_entry,
+            "title":               title_txt,
             "title_var":           title_var,
             "title_user_edited":   _title_user_edited,
             "build_title":         _build_title,
