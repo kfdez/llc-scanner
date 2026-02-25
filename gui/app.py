@@ -2994,7 +2994,9 @@ SETUP MENU REFERENCE
 
   Rehash All Cards (fixes accuracy)
       Clears all stored perceptual hashes and recomputes them from the local
-      image files. Required after moving images or changing PHASH_SIZE.
+      image files. Also computes art-zone hashes (illustration box only) for
+      sticker compensation. Required after moving images, changing PHASH_SIZE,
+      or enabling sticker compensation features.
 
   Build / Rebuild Embeddings (ML, GPU)
       Computes DINOv2 embeddings for ML matching. Requires a CUDA GPU.
@@ -3018,10 +3020,48 @@ since they are not physical cards. This is controlled by
 EXCLUDED_SET_ID_PREFIXES in config.py (currently: A, B, P-A).
 
 
+STICKER / LABEL COMPENSATION
+-----------------------------
+LLC Scanner can identify cards even when they have price stickers or condition
+labels applied:
+
+1. Auto-detect (enabled by default)
+   Cards with solid rectangular stickers (white labels, price stickers, etc.)
+   are automatically detected and inpainted before matching. This runs during
+   preprocessing and works for both Hash and ML matching modes.
+
+2. Manual Mask (for stickers auto-detect misses)
+   If auto-detect misses a sticker, click the 🏷 button on a batch row to
+   draw a rectangle over the sticker manually. The card is then re-identified
+   with that region masked out.
+
+3. Art-Zone Hashing
+   When sticker compensation is active, the matcher compares the full card
+   hash alongside a hash of just the illustration box (the middle portion of
+   the card, away from common sticker positions). This provides a fallback
+   when the sticker region corrupts the full-card hash.
+
+4. CLAHE Normalization
+   A brightness/contrast normalization is applied to scans to compensate for
+   aged/yellowed cards. This brings older physical cards closer to the clean
+   digital reference images.
+
+All of these features are configurable in  Export -> Export Settings  under
+the Identification section.
+
+IMPORTANT: After enabling sticker compensation or changing settings, run
+Setup -> Rehash All Cards  to populate the art-zone hashes in the database.
+
+
 TROUBLESHOOTING
 ---------------
   Poor match accuracy   -> Run  Setup -> Rehash All Cards, or build ML
                            embeddings for the best results.
+
+  Card has a price sticker -> Enable Auto-detect stickers in Settings, or draw
+                           a manual mask using the 🏷 button on the row.
+                           Then run  Setup -> Rehash All Cards  once to populate
+                           the art-zone hashes for better matching.
 
   Wrong card matched    -> Use  <  /  >  to cycle candidates, or  ?  to
                            search manually.
