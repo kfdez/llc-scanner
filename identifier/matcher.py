@@ -27,6 +27,7 @@ from PIL import Image
 from config import (
     HASH_TYPES, HASH_IMAGE_SIZE, TOP_K_MATCHES,
     CONFIDENCE_HIGH, CONFIDENCE_MED, PHASH_SIZE,
+    STICKER_AUTO_DETECT, HASH_ART_Y0, HASH_ART_Y1,
 )
 from db.database import get_all_hashes, get_card_by_id
 from cards.hasher import _HASH_FN
@@ -64,14 +65,23 @@ class _HashIndex:
         self.arrays   = arrays
 
     @classmethod
-    def build(cls) -> "_HashIndex":
-        """Load all hashes from DB and assemble the index."""
-        # Collect rows per hash type
-        rows_by_ht: dict[str, list] = {ht: get_all_hashes(ht) for ht in HASH_TYPES}
+    def build(cls, hash_types: "list[str] | None" = None) -> "_HashIndex":
+        """Load hashes from DB and assemble the index.
 
-        # Determine the canonical ordering of card IDs from phash rows
-        # (all hash types should have the same set of cards, but phash is baseline)
-        primary_ht = HASH_TYPES[0]   # "phash"
+        Parameters
+        ----------
+        hash_types : list[str] | None
+            Hash type names to load (e.g. ["phash","ahash","dhash","whash"] for
+            full-card or ["phash_art","ahash_art","dhash_art","whash_art"] for
+            the art-zone index).  Defaults to HASH_TYPES (full-card).
+        """
+        ht_list = hash_types if hash_types is not None else HASH_TYPES
+
+        # Collect rows per hash type
+        rows_by_ht: dict[str, list] = {ht: get_all_hashes(ht) for ht in ht_list}
+
+        # Determine the canonical ordering of card IDs from the first hash type
+        primary_ht = ht_list[0]
         card_ids = [r["card_id"] for r in rows_by_ht[primary_ht]]
         id_to_idx = {cid: i for i, cid in enumerate(card_ids)}
         n = len(card_ids)
@@ -83,7 +93,7 @@ class _HashIndex:
         bytes_per_hash = (PHASH_SIZE * PHASH_SIZE) // 8
 
         arrays: dict[str, np.ndarray] = {}
-        for ht in HASH_TYPES:
+        for ht in ht_list:
             mat = np.zeros((n, bytes_per_hash), dtype=np.uint8)
             for row in rows_by_ht[ht]:
                 idx = id_to_idx.get(row["card_id"])
@@ -114,13 +124,21 @@ class _HashIndex:
         Parameters
         ----------
         scan_hashes : dict[str, ImageHash]
-            Output of ``_HASH_FN[ht](img, hash_size=PHASH_SIZE)`` for each ht.
+            Keyed by the same hash type names this index was built with.
+            For the full-card index: "phash", "ahash", etc.
+            For the art-zone index:  "phash_art", "ahash_art", etc.
+
+        Weights are looked up by stripping any trailing "_art" suffix so both
+        the full-card and art-zone indexes use the same _WEIGHTS table.
         """
         n = len(self.card_ids)
         accumulated = np.zeros(n, dtype=np.float32)
 
-        for ht, weight in _WEIGHTS.items():
-            if ht not in self.arrays or ht not in scan_hashes:
+        for ht in self.arrays:
+            # Resolve weight: "phash_art" → "phash", "phash" → "phash"
+            base_ht = ht.removesuffix("_art")
+            weight  = _WEIGHTS.get(base_ht, 1.0)
+            if ht not in scan_hashes:
                 continue
             # Pack the scan hash to bytes the same way the DB stores them
             scan_packed = np.packbits(scan_hashes[ht].hash.flatten())
@@ -132,14 +150,23 @@ class _HashIndex:
         return accumulated / _WEIGHT_SUM
 
 
-# Module-level cache — loaded lazily on first identify call, refreshed after setup
-_index: _HashIndex | None = None
+# Module-level caches — loaded lazily on first identify call, refreshed after setup.
+# _art_index uses hash types "phash_art" / "ahash_art" / "dhash_art" / "whash_art"
+# computed from the illustration box only (y ≈ 13–53% of card height).
+# It is populated after running "Setup → Rehash All Cards" and is used via
+# np.minimum(full_distances, art_distances) when a sticker is active.
+_index:     _HashIndex | None = None
+_art_index: _HashIndex | None = None
+
+# Art-zone hash type names mirroring HASH_TYPES with "_art" suffix
+_ART_HASH_TYPES = [f"{ht}_art" for ht in HASH_TYPES]
 
 
 def reload_index() -> None:
-    """Force reload of the hash index from DB (call after setup completes)."""
-    global _index
-    _index = _HashIndex.build()
+    """Force reload of the hash index (and art-zone index) from DB."""
+    global _index, _art_index
+    _index     = _HashIndex.build()
+    _art_index = _HashIndex.build(hash_types=_ART_HASH_TYPES)
 
 
 def _get_index() -> _HashIndex:
@@ -147,6 +174,14 @@ def _get_index() -> _HashIndex:
     if _index is None:
         _index = _HashIndex.build()
     return _index
+
+
+def _get_art_index() -> "_HashIndex | None":
+    """Return the art-zone index, loading it lazily.  Returns None if empty."""
+    global _art_index
+    if _art_index is None:
+        _art_index = _HashIndex.build(hash_types=_ART_HASH_TYPES)
+    return _art_index if not _art_index.is_empty() else None
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +196,9 @@ def _confidence_label(distance: float) -> str:
     return "low"
 
 
-def identify_card(image_path: str) -> list[dict]:
+def identify_card(image_path: str,
+                  sticker_mask_px: "tuple | None" = None,
+                  auto_detect: "bool | None" = None) -> list[dict]:
     """
     Identify a card from an image file using perceptual hashing.
 
@@ -192,7 +229,9 @@ def identify_card(image_path: str) -> list[dict]:
         return []
 
     # Preprocess scan using the full card-detection pipeline
-    pil_img = _preprocess_image(image_path)
+    pil_img = _preprocess_image(image_path,
+                                sticker_mask_px=sticker_mask_px,
+                                auto_detect=auto_detect)
 
     # Compute hashes for the scanned card (imagehash objects — only N=1 image)
     scan_hashes: dict[str, imagehash.ImageHash] = {
@@ -200,7 +239,29 @@ def identify_card(image_path: str) -> list[dict]:
     }
 
     # Vectorised scoring — returns float32 array of length N
-    distances = index.score(scan_hashes)
+    full_distances = index.score(scan_hashes)
+
+    # Art-zone scoring — used when a sticker is known/suspected.
+    # The art zone (y ≈ 13–53% of card) sits away from both top and bottom
+    # sticker placement zones.  np.minimum gives each card the better of its
+    # full-card or art-zone Hamming score so a card with a clean art zone wins
+    # even if the sticker region corrupts the full-card hash.
+    _use_art = (sticker_mask_px is not None) or (
+        auto_detect if auto_detect is not None else STICKER_AUTO_DETECT
+    )
+    art_idx = _get_art_index() if _use_art else None
+
+    if art_idx is not None and len(art_idx.card_ids) == len(index.card_ids):
+        W, H = HASH_IMAGE_SIZE
+        art_crop = pil_img.crop((0, int(H * HASH_ART_Y0), W, int(H * HASH_ART_Y1)))
+        art_scan_hashes: dict[str, imagehash.ImageHash] = {
+            f"{ht}_art": _HASH_FN[ht](art_crop, hash_size=PHASH_SIZE)
+            for ht in HASH_TYPES
+        }
+        art_distances = art_idx.score(art_scan_hashes)
+        distances = np.minimum(full_distances, art_distances)
+    else:
+        distances = full_distances
 
     # Partial sort: find the TOP_K_MATCHES smallest distances
     k = min(TOP_K_MATCHES, len(distances))

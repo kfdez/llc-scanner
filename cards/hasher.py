@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
 import imagehash
 
-from config import HASH_TYPES, HASH_IMAGE_SIZE, PHASH_SIZE
+from config import HASH_TYPES, HASH_IMAGE_SIZE, PHASH_SIZE, HASH_ART_Y0, HASH_ART_Y1
 from db.database import get_cards_without_hashes, upsert_hashes_batch
 
 # Number of parallel worker threads for hashing.
@@ -27,9 +27,32 @@ _HASH_FN = {
 
 
 def compute_hashes_for_image(image_path: str) -> dict[str, str]:
-    """Load an image and return a dict of {hash_type: hash_string}."""
+    """Load an image and return a dict of {hash_type: hash_string}.
+
+    Computes two sets of hashes per card:
+    - Standard (phash / ahash / dhash / whash): full 300×420 card image.
+    - Art-zone (*_art suffix): top-only crop covering the illustration box
+      (y = HASH_ART_Y0–HASH_ART_Y1, i.e. ≈ 13–53% of card height).
+
+    The art-zone hashes are used by the matcher when a sticker is detected or
+    manually masked, allowing scoring to bypass the sticker-affected region.
+    Run "Setup → Rehash All Cards" after adding this feature to populate the
+    new hash entries in the DB.
+    """
+    W, H = HASH_IMAGE_SIZE
     img = Image.open(image_path).convert("RGB").resize(HASH_IMAGE_SIZE)
-    return {ht: str(_HASH_FN[ht](img, hash_size=PHASH_SIZE)) for ht in HASH_TYPES}
+
+    # Standard hashes — full 300×420 card
+    result = {ht: str(_HASH_FN[ht](img, hash_size=PHASH_SIZE)) for ht in HASH_TYPES}
+
+    # Art-zone hashes — illustration box only (avoids top and bottom sticker zones)
+    art_y0 = int(H * HASH_ART_Y0)   # ≈ 55 px
+    art_y1 = int(H * HASH_ART_Y1)   # ≈ 221 px
+    art_img = img.crop((0, art_y0, W, art_y1))   # 300 × ~166 px
+    for ht in HASH_TYPES:
+        result[f"{ht}_art"] = str(_HASH_FN[ht](art_img, hash_size=PHASH_SIZE))
+
+    return result
 
 
 def _hash_row(row) -> tuple[str, dict[str, str] | None]:

@@ -18,9 +18,10 @@ from identifier.embedding_matcher import identify_card_embedding, reload_embeddi
 
 
 CONF_COLORS = {
-    "high": "#2ecc71",
+    "high":   "#2ecc71",
     "medium": "#f39c12",
-    "low": "#e74c3c",
+    "low":    "#e74c3c",
+    "manual": "#5599ff",   # blue — user confirmed via search
 }
 
 # Minimum and aspect ratio constants for dynamic image scaling
@@ -42,6 +43,7 @@ class BatchRow:
     row_number: int = 0                # 1-based position in the batch (for label generation)
     widgets: dict = field(default_factory=dict)  # tk widget refs for in-place updates
     back_image_path: str = ""          # optional back-of-card scan path
+    sticker_mask_px: "tuple | None" = None  # manual sticker mask (x, y, bw, bh) in 300×420 space
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -88,6 +90,28 @@ class CardIdentifierApp(tk.Tk):
 
         # Matcher mode (shared between single and batch tabs)
         self._matcher_mode = tk.StringVar(value="ML (GPU)")
+        try:
+            from config import _load_settings as _ls
+            _saved_mode = _ls().get("matcher_mode", "")
+            if _saved_mode in ("Hash", "ML (GPU)", "Hybrid (both)"):
+                self._matcher_mode.set(_saved_mode)
+        except Exception:
+            pass
+
+        # Sticker compensation settings
+        self._sticker_auto_detect    = tk.BooleanVar(value=True)
+        self._sticker_manual_fallback = tk.BooleanVar(value=False)
+        try:
+            from config import _load_settings as _ls2
+            _st = _ls2()
+            _auto_val = _st.get("sticker_auto_detect")
+            if _auto_val is not None:
+                self._sticker_auto_detect.set(bool(_auto_val in (True, "true", "True", 1, "1")))
+            _man_val = _st.get("sticker_manual_fallback")
+            if _man_val is not None:
+                self._sticker_manual_fallback.set(bool(_man_val in (True, "true", "True", 1, "1")))
+        except Exception:
+            pass
 
         # Batch state
         self._front_back_mode = tk.BooleanVar(value=False)  # pair every 2 scans as front+back
@@ -120,6 +144,13 @@ class CardIdentifierApp(tk.Tk):
 
     def _build_menu(self):
         menubar = tk.Menu(self)
+
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Clear", command=self._clear_batch)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.destroy)
+        menubar.add_cascade(label="File", menu=file_menu)
+
         setup_menu = tk.Menu(menubar, tearoff=0)
         setup_menu.add_command(label="Download / Update Card Database", command=self._run_setup)
         setup_menu.add_command(label="Refresh Card Metadata (set names, rarities...)", command=self._run_refresh_metadata)
@@ -135,7 +166,7 @@ class CardIdentifierApp(tk.Tk):
         export_menu = tk.Menu(menubar, tearoff=0)
         export_menu.add_command(label="Export Batch to eBay CSV...", command=self._export_ebay_csv)
         export_menu.add_separator()
-        export_menu.add_command(label="eBay Export Settings...", command=self._open_ebay_settings)
+        export_menu.add_command(label="Export Settings...", command=self._open_ebay_settings)
         menubar.add_cascade(label="Export", menu=export_menu)
 
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -223,23 +254,6 @@ class CardIdentifierApp(tk.Tk):
             fg="#a0a0b0",
             font=("Helvetica", 10),
         ).pack(side="left", padx=12)
-
-        # Matcher mode selector (right-aligned)
-        tk.Label(
-            top, text="Matcher:",
-            bg="#16213e", fg="#a0a0b0",
-            font=("Helvetica", 10),
-        ).pack(side="right", padx=(0, 4))
-
-        mode_selector = ttk.Combobox(
-            top,
-            textvariable=self._matcher_mode,
-            values=["Hash", "ML (GPU)", "Hybrid (both)"],
-            state="readonly",
-            width=13,
-            font=("Helvetica", 10),
-        )
-        mode_selector.pack(side="right", padx=(0, 8))
 
         # ---- Main body — PanedWindow ----
         self._pane = tk.PanedWindow(
@@ -337,14 +351,7 @@ class CardIdentifierApp(tk.Tk):
                   command=self._export_ebay_csv,
                   bg="#145214", fg="white", activebackground="#1e7a1e",
                   font=("Helvetica", 11, "bold"), relief="flat",
-                  padx=14, pady=7, cursor="hand2").pack(side="left", padx=(12, 0))
-
-        tk.Label(toolbar, text="Matcher:", bg="#16213e", fg="#a0a0b0",
-                 font=("Helvetica", 10)).pack(side="right", padx=(0, 4))
-        ttk.Combobox(toolbar, textvariable=self._matcher_mode,
-                     values=["Hash", "ML (GPU)", "Hybrid (both)"],
-                     state="readonly", width=13,
-                     font=("Helvetica", 10)).pack(side="right", padx=(0, 8))
+                  padx=14, pady=7, cursor="hand2").pack(side="right", padx=(0, 8))
 
         # ---- Toolbar row 1: front/back checkbox ----
         _cb_style = ttk.Style()
@@ -352,11 +359,38 @@ class CardIdentifierApp(tk.Tk):
                             background="#16213e", foreground="#a0a0b0",
                             font=("Helvetica", 10))
         fb_row = tk.Frame(parent, bg="#16213e")
-        fb_row.grid(row=1, column=0, sticky="w", padx=10, pady=(2, 0))
+        fb_row.grid(row=1, column=0, sticky="ew", padx=10, pady=(2, 0))
         ttk.Checkbutton(fb_row, text="Front + Back scans",
                         variable=self._front_back_mode,
                         style="Toolrow.TCheckbutton"
                         ).pack(side="left")
+
+        tk.Label(fb_row, text="  Function:", bg="#16213e", fg="#a0a0b0",
+                 font=("Helvetica", 10)).pack(side="left", padx=(20, 4))
+
+        self._batch_fn_var = tk.StringVar(value="— select —")
+        fn_cb = ttk.Combobox(fb_row, textvariable=self._batch_fn_var,
+                             values=["— select —", "Combine Duplicates"],
+                             state="readonly", width=18, font=("Helvetica", 10))
+        fn_cb.pack(side="left")
+
+        def _apply_batch_fn():
+            fn = self._batch_fn_var.get()
+            if fn == "Combine Duplicates":
+                self._combine_duplicate_rows()
+
+        tk.Button(fb_row, text="Apply", command=_apply_batch_fn,
+                  bg="#0f3460", fg="white", activebackground="#533483",
+                  font=("Helvetica", 10, "bold"), relief="flat",
+                  padx=10, pady=4, cursor="hand2").pack(side="left", padx=(6, 0))
+
+        self._export_type_var = tk.StringVar(value="Regular")
+        ttk.Combobox(fb_row, textvariable=self._export_type_var,
+                     values=["Regular", "Variation"],
+                     state="readonly", width=10,
+                     font=("Helvetica", 10)).pack(side="right", padx=(0, 0))
+        tk.Label(fb_row, text="Export Type:", bg="#16213e", fg="#a0a0b0",
+                 font=("Helvetica", 10)).pack(side="right", padx=(0, 4))
 
         # ---- Toolbar row 2: batch name ----
         name_row = tk.Frame(parent, bg="#16213e")
@@ -421,7 +455,7 @@ class CardIdentifierApp(tk.Tk):
             ("qty",     "Qty"),     ("price",   "Price $"),
             ("name",    "Name"),    ("set",     "Set"),
             ("num",     "#/Total"), ("rarity",  "Rarity"),
-            ("finish",  "Finish"),  ("edition", "Edition"),
+            ("finish",  "Variant"), ("type",    "Type"),
             ("conf",    "Conf"),    ("cond",    "Cond"),
             ("game",    "Game"),    ("desc",    "Desc"),
             ("actions", "Actions"),
@@ -558,24 +592,53 @@ class CardIdentifierApp(tk.Tk):
             return
         self.after(0, self._show_results, results)
 
-    def _run_identify(self, path: str) -> list[dict]:
+    def _run_identify(self, path: str,
+                      sticker_mask_px: "tuple | None" = None) -> list[dict]:
         """Dispatch identification to the active matcher. Used by both single and batch."""
-        mode = self._matcher_mode.get()
+        mode    = self._matcher_mode.get()
+        auto    = self._sticker_auto_detect.get()
+        s_kw    = dict(sticker_mask_px=sticker_mask_px, auto_detect=auto)
 
         if mode == "Hash":
-            return identify_card(path)
+            return identify_card(path, **s_kw)
 
         if mode == "ML (GPU)":
-            results = identify_card_embedding(path)
-            return results if results else identify_card(path)
+            results = identify_card_embedding(path, **s_kw)
+            return results if results else identify_card(path, **s_kw)
 
         # Hybrid
         from config import EMBEDDING_CONFIDENCE_MED
-        ml_results   = identify_card_embedding(path)
-        hash_results = identify_card(path)
+        ml_results   = identify_card_embedding(path, **s_kw)
+        hash_results = identify_card(path, **s_kw)
         if ml_results and ml_results[0]["distance"] >= EMBEDDING_CONFIDENCE_MED:
             return ml_results
         return hash_results if hash_results else ml_results
+
+    def _reidentify_row(self, br: "BatchRow"):
+        """Re-run identification on an existing batch row (e.g. after mask change)."""
+        # Show a pending indicator immediately so the user knows it's running
+        w = br.widgets
+        if w and "conf" in w:
+            w["conf"].config(text="⟳ ID…", fg="#888888")
+
+        def _worker():
+            try:
+                results = self._run_identify(br.image_path,
+                                             sticker_mask_px=br.sticker_mask_px)
+            except Exception:
+                results = []
+            if results:
+                from identifier.enricher import enrich_result
+                enrich_result(results[0])
+            def _update():
+                br.candidates  = results if results else br.candidates
+                br.current_idx = 0
+                if br.widgets:
+                    br.widgets["title_user_edited"][0] = False
+                self._refresh_row(br)
+            self.after(0, _update)
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
 
     # ------------------------------------------------------------------
     # Dynamic resize handlers (single-card tab)
@@ -735,6 +798,14 @@ class CardIdentifierApp(tk.Tk):
         for widget in self._alts_frame.winfo_children():
             widget.destroy()
 
+    def _clear_batch(self):
+        """Remove all rows from the batch grid."""
+        for br in self._batch_rows:
+            frame = br.widgets.get("frame") if br.widgets else None
+            if frame:
+                frame.destroy()
+        self._batch_rows.clear()
+
     # ------------------------------------------------------------------
     # Batch tab actions
     # ------------------------------------------------------------------
@@ -851,7 +922,7 @@ class CardIdentifierApp(tk.Tk):
     # previously resized columns.
     _COL_W_DEFAULTS = {
         "scan": 78, "ref": 78, "title": 260, "label": 140, "name": 175, "set": 135,
-        "num": 80, "rarity": 90, "finish": 115, "edition": 95, "conf": 90,
+        "num": 80, "rarity": 90, "finish": 115, "type": 80, "conf": 90,
         "qty": 55, "price": 80, "cond": 120, "game": 100, "desc": 120,
         "actions": 120,
     }
@@ -1025,7 +1096,7 @@ class CardIdentifierApp(tk.Tk):
             "Holo", "Reverse Holo", "Poke Ball Holo", "Master Ball Holo",
         }
 
-        def _build_title(candidate: dict, cond: str, edition: str = "",
+        def _build_title(candidate: dict, cond: str,
                          finish: str = "", set_name_override: str | None = None) -> str:
             parts = [candidate.get("name", "") or ""]
             num = self._fmt_number(candidate)
@@ -1035,9 +1106,6 @@ class CardIdentifierApp(tk.Tk):
             sid = candidate.get("set_id", "") or ""
             # Always start with full set name
             parts.append(s) if s else None
-            # Include edition only when it's meaningful (WotC era, 1st Edition selected)
-            if edition and edition != "Unlimited":
-                parts.append(edition)
             r = candidate.get("rarity", "") or ""
             if r and r.lower() != "none":
                 parts.append(r)
@@ -1059,8 +1127,7 @@ class CardIdentifierApp(tk.Tk):
                 title = " - ".join(p for p in parts if p)
             return title
 
-        # _edition_ref, _finish_ref, _set_var_ref are filled in after those vars are created below
-        _edition_ref:  list = [""]
+        # _finish_ref, _set_var_ref are filled in after those vars are created below
         _finish_ref:   list = [""]
         _set_var_ref:  list = [None]   # holds set_var once created
 
@@ -1071,7 +1138,6 @@ class CardIdentifierApp(tk.Tk):
             t = _build_title(
                 row.candidates[row.current_idx] if row.candidates else {},
                 cond_var.get(),
-                _edition_ref[0].get() if _edition_ref[0] else "",
                 _finish_ref[0].get()  if _finish_ref[0]  else "",
                 set_name_override=sv.get() if sv else None,
             )
@@ -1081,7 +1147,7 @@ class CardIdentifierApp(tk.Tk):
             _update_title_counter(t)
 
         # Pre-populate title now that _update_title is defined
-        _initial_title = _build_title(top, "Near Mint") if top else ""
+        _initial_title = _build_title(top, "Near Mint", finish="") if top else ""
         _title_user_edited[0] = False
         title_var.set(_initial_title)
         _title_user_edited[0] = False
@@ -1203,25 +1269,36 @@ class CardIdentifierApp(tk.Tk):
                 target=_auto_fetch_price, args=(top,), daemon=True
             ).start()
 
-        # ── Edition dropdown (WotC era only — hidden for modern sets) ──
-        edition_cell = _named_cell("edition")
-        edition_var = tk.StringVar(value="Unlimited")
-        edition_cb = ttk.Combobox(edition_cell, textvariable=edition_var,
-                                   values=["Unlimited", "1st Edition"],
-                                   state="readonly", font=("Helvetica", 10))
-        if self._is_wotc_era(top):
-            edition_cb.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.92)
-        # Wire edition into title updates now that edition_var exists
-        _edition_ref[0] = edition_var
-        edition_var.trace_add("write", _update_title)
+        # ── Type label (read-only: base of the selected finish variant) ──
+        type_cell = _named_cell("type")
+        _type_initial = finish_var.get().split("(")[0].strip()
+        type_lbl = _bind_mw(tk.Label(type_cell, text=_type_initial,
+                                      bg=bg, fg="#d0d0e8",
+                                      font=("Helvetica", 10), anchor="w"))
+        type_lbl.place(x=4, y=0, relwidth=1.0, relheight=1.0)
+
+        def _update_type_lbl(*_):
+            type_lbl.config(text=finish_var.get().split("(")[0].strip())
+        finish_var.trace_add("write", _update_type_lbl)
 
         # ── Confidence badge ──
         conf_cell = _named_cell("conf")
         conf = top.get("confidence", "low") if top else "low"
-        conf_lbl = _bind_mw(tk.Label(conf_cell, text=f"● {conf.upper()}",
+        _conf_text = "● MAN" if conf == "manual" else f"● {conf.upper()}"
+        conf_lbl = _bind_mw(tk.Label(conf_cell, text=_conf_text,
                                       bg=bg, fg=CONF_COLORS.get(conf, "#888"),
                                       font=("Helvetica", 10, "bold"), anchor="w"))
         conf_lbl.place(x=4, y=0, relwidth=1.0, relheight=1.0)
+
+        # 🏷 sticker-mask button — only shown when manual fallback is enabled
+        if self._sticker_manual_fallback.get():
+            _sticker_btn = tk.Button(
+                conf_cell, text="\U0001f3f7",
+                font=("Helvetica", 8), bg="#0d0d1a", fg="#a0a0b0",
+                activebackground="#1a1a4e", relief="flat", cursor="hand2",
+                command=lambda b=row: self._show_sticker_mask_dialog(b),
+            )
+            _sticker_btn.place(relx=1.0, x=-22, y=1, width=20, height=20)
 
         def _tab_to_next_row(widget_key: str, event=None):
             """On Tab, move focus to the same column widget in the next batch row."""
@@ -1235,8 +1312,30 @@ class CardIdentifierApp(tk.Tk):
                     nxt.focus_set()
                     return "break"  # suppress default Tab behaviour
 
-        qty_spin.bind("<Tab>",   lambda e: _tab_to_next_row("qty_spin", e))
-        price_entry.bind("<Tab>", lambda e: _tab_to_next_row("price_entry", e))
+        def _tab_to_prev_row(widget_key: str, event=None):
+            """On Shift-Tab, move focus to the same column widget in the previous batch row."""
+            current_idx = next(
+                (i for i, r in enumerate(self._batch_rows) if r.widgets.get("frame") is frame),
+                None,
+            )
+            if current_idx is not None and current_idx > 0:
+                prv = self._batch_rows[current_idx - 1].widgets.get(widget_key)
+                if prv:
+                    prv.focus_set()
+                    return "break"
+
+        title_txt.bind("<Tab>",       lambda e: _tab_to_next_row("title",        e))
+        title_txt.bind("<Shift-Tab>", lambda e: _tab_to_prev_row("title",        e))
+        label_entry.bind("<Tab>",       lambda e: _tab_to_next_row("label_entry", e))
+        label_entry.bind("<Shift-Tab>", lambda e: _tab_to_prev_row("label_entry", e))
+        qty_spin.bind("<Tab>",          lambda e: _tab_to_next_row("qty_spin",    e))
+        qty_spin.bind("<Shift-Tab>",    lambda e: _tab_to_prev_row("qty_spin",    e))
+        price_entry.bind("<Tab>",       lambda e: _tab_to_next_row("price_entry", e))
+        price_entry.bind("<Shift-Tab>", lambda e: _tab_to_prev_row("price_entry", e))
+        set_entry.bind("<Tab>",         lambda e: _tab_to_next_row("set_entry",   e))
+        set_entry.bind("<Shift-Tab>",   lambda e: _tab_to_prev_row("set_entry",   e))
+        finish_cb.bind("<Tab>",         lambda e: _tab_to_next_row("finish_cb",   e))
+        finish_cb.bind("<Shift-Tab>",   lambda e: _tab_to_prev_row("finish_cb",   e))
 
         # ── Condition combobox ──
         cond_cell = _named_cell("cond")
@@ -1249,6 +1348,8 @@ class CardIdentifierApp(tk.Tk):
         cond_var.trace_add("write", _update_title)
         # Set initial title now that cond_var exists
         _update_title()
+        cond_cb.bind("<Tab>",       lambda e: _tab_to_next_row("cond_cb", e))
+        cond_cb.bind("<Shift-Tab>", lambda e: _tab_to_prev_row("cond_cb", e))
 
         # ── Game label ──
         game_cell = _named_cell("game")
@@ -1532,15 +1633,15 @@ class CardIdentifierApp(tk.Tk):
             "build_title":         _build_title,
             "update_title_counter": _update_title_counter,
             "label_var":    label_var,
+            "label_entry":  label_entry,
             "name":         name_lbl,
             "set_var":      set_var,
+            "set_entry":    set_entry,
             "number":     num_lbl,
             "rarity":     rarity_lbl,
             "finish_var":   finish_var,
             "finish_cb":    finish_cb,
-            "edition_cell": edition_cell,
-            "edition_var":  edition_var,
-            "edition_cb":   edition_cb,
+            "type_lbl":     type_lbl,
             "conf":       conf_lbl,
             "qty_var":    qty_var,
             "qty_spin":   qty_spin,
@@ -1549,6 +1650,7 @@ class CardIdentifierApp(tk.Tk):
             "source_label_var":  source_label_var,
             "price_user_edited": _price_user_edited,
             "cond_var":   cond_var,
+            "cond_cb":    cond_cb,
             "desc_var":          desc_var,
             "desc_render":       _render_desc,
             "desc_user_edited":  _desc_user_edited,
@@ -1860,7 +1962,7 @@ class CardIdentifierApp(tk.Tk):
         w["rarity"].config(text=top.get("rarity", "—") or "—")
         if not w["title_user_edited"][0]:
             _t = w["build_title"](top, w["cond_var"].get(),
-                                  w["edition_var"].get(), w["finish_var"].get(),
+                                  w["finish_var"].get(),
                                   set_name_override=w["set_var"].get())
             w["title_user_edited"][0] = False
             w["title_var"].set(_t)
@@ -1868,7 +1970,8 @@ class CardIdentifierApp(tk.Tk):
             w["update_title_counter"](_t)
 
         conf = top.get("confidence", "low") if top else "low"
-        w["conf"].config(text=f"● {conf.upper()}", fg=CONF_COLORS.get(conf, "#888"))
+        _conf_text = "● MAN" if conf == "manual" else f"● {conf.upper()}"
+        w["conf"].config(text=_conf_text, fg=CONF_COLORS.get(conf, "#888"))
 
         # Update reference thumbnail
         ref_path = top.get("local_image_path", "") if top else ""
@@ -1892,12 +1995,9 @@ class CardIdentifierApp(tk.Tk):
             w["desc_var"].set(rendered)
             w["desc_user_edited"][0] = False   # trace fired — reset again
 
-        # Show edition dropdown only for WotC-era cards (firstEdition flag)
-        if self._is_wotc_era(top):
-            w["edition_cb"].place(relx=0.5, rely=0.5, anchor="center", relwidth=0.92)
-        else:
-            w["edition_cb"].place_forget()
-            w["edition_var"].set("Unlimited")
+        # Update the type label (base of selected finish variant)
+        if w.get("type_lbl"):
+            w["type_lbl"].config(text=w["finish_var"].get().split("(")[0].strip())
 
         # Always refresh price when cycling to a new candidate.
         # _refresh_price resets price_user_edited before fetching.
@@ -2097,7 +2197,7 @@ class CardIdentifierApp(tk.Tk):
                 "set_total":         card["set_total"]         if "set_total"         in card.keys() else None,
                 "variants_detailed": card["variants_detailed"] if "variants_detailed" in card.keys() else None,
                 "distance":          0.0,
-                "confidence":        "high",   # user manually confirmed
+                "confidence":        "manual",   # user manually confirmed via search
             }
             import json as _json
             # Decode variants JSON if it came back as a string
@@ -2315,11 +2415,360 @@ class CardIdentifierApp(tk.Tk):
     # eBay export
     # ------------------------------------------------------------------
 
+    def _show_variation_setup_dialog(self, settings: dict):
+        """Show a modal dialog to collect the shared title and gallery image URL
+        for a Variation listing export.
+
+        Returns (title, pic_url) on confirmation, or None if the user cancels.
+        """
+        # Pre-fill title from the first batch row that has candidates
+        _first_title = ""
+        for br in self._batch_rows:
+            if br.candidates and br.widgets:
+                _tv = br.widgets.get("title_var")
+                if _tv:
+                    _first_title = _tv.get()
+                    break
+
+        # Result container — set by the dialog buttons
+        _result: list = [None]
+
+        dlg = tk.Toplevel(self)
+        dlg.title("Variation Listing Setup")
+        dlg.configure(bg="#1a1a2e")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.transient(self)
+
+        # ── Title row ────────────────────────────────────────────────────
+        tk.Label(dlg, text="Listing Title:", bg="#1a1a2e", fg="#a0a0b0",
+                 font=("Helvetica", 10)).grid(row=0, column=0, columnspan=3,
+                                              sticky="w", padx=16, pady=(16, 2))
+        title_var = tk.StringVar(value=_first_title)
+        title_entry = tk.Entry(dlg, textvariable=title_var,
+                               bg="#0d0d1a", fg="white", insertbackground="white",
+                               relief="flat", font=("Helvetica", 11), width=60)
+        title_entry.grid(row=1, column=0, columnspan=3, sticky="ew",
+                         padx=16, pady=(0, 12), ipady=5)
+
+        # Character counter
+        _counter_var = tk.StringVar()
+        def _update_counter(*_):
+            n = len(title_var.get())
+            _counter_var.set(f"{n}/80")
+        title_var.trace_add("write", _update_counter)
+        _update_counter()
+        tk.Label(dlg, textvariable=_counter_var, bg="#1a1a2e", fg="#666699",
+                 font=("Helvetica", 9)).grid(row=2, column=0, columnspan=3,
+                                             sticky="e", padx=16, pady=(0, 6))
+
+        # ── Gallery Image URL row ────────────────────────────────────────
+        tk.Label(dlg, text="Gallery Image URL:", bg="#1a1a2e", fg="#a0a0b0",
+                 font=("Helvetica", 10)).grid(row=3, column=0, columnspan=3,
+                                              sticky="w", padx=16, pady=(0, 2))
+        pic_var = tk.StringVar()
+        pic_entry = tk.Entry(dlg, textvariable=pic_var,
+                             bg="#0d0d1a", fg="white", insertbackground="white",
+                             relief="flat", font=("Helvetica", 10), width=48)
+        pic_entry.grid(row=4, column=0, sticky="ew", padx=(16, 4), ipady=4)
+
+        _upload_btn_text = tk.StringVar(value="Upload via imgbb…")
+        _upload_status   = tk.StringVar(value="")
+
+        def _do_imgbb_upload():
+            api_key = (settings.get("ebay_imgbb_api_key") or "").strip()
+            if not api_key:
+                messagebox.showwarning(
+                    "imgbb Not Configured",
+                    "No imgbb API key found.\nGo to Settings → eBay to add your key.",
+                    parent=dlg,
+                )
+                return
+            img_path = filedialog.askopenfilename(
+                parent=dlg,
+                title="Choose Gallery Image",
+                filetypes=[("Image files", "*.jpg *.jpeg *.png *.gif *.webp"),
+                           ("All files", "*.*")],
+            )
+            if not img_path:
+                return
+
+            _upload_btn_text.set("Uploading…")
+            _upload_status.set("")
+            upload_btn.config(state="disabled")
+            dlg.update()
+
+            def _worker():
+                try:
+                    from ebay.imgbb_uploader import upload_image
+                    url = upload_image(img_path, api_key, name="gallery")
+                    self.after(0, lambda: pic_var.set(url))
+                    self.after(0, lambda: _upload_status.set("✓ Uploaded"))
+                except Exception as exc:
+                    self.after(0, lambda: _upload_status.set(f"Upload failed: {exc}"))
+                finally:
+                    self.after(0, lambda: _upload_btn_text.set("Upload via imgbb…"))
+                    self.after(0, lambda: upload_btn.config(state="normal"))
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        upload_btn = tk.Button(dlg, textvariable=_upload_btn_text,
+                               command=_do_imgbb_upload,
+                               bg="#0f3460", fg="white", activebackground="#533483",
+                               relief="flat", font=("Helvetica", 10),
+                               cursor="hand2", padx=10, pady=4)
+        upload_btn.grid(row=4, column=1, sticky="w", padx=(0, 16), pady=(0, 2))
+
+        tk.Label(dlg, textvariable=_upload_status, bg="#1a1a2e", fg="#44cc88",
+                 font=("Helvetica", 9)).grid(row=5, column=0, columnspan=3,
+                                             sticky="w", padx=16, pady=(0, 12))
+
+        # ── Bottom buttons ────────────────────────────────────────────────
+        btn_frame = tk.Frame(dlg, bg="#1a1a2e")
+        btn_frame.grid(row=6, column=0, columnspan=3, sticky="e",
+                       padx=16, pady=(0, 16))
+
+        def _on_export():
+            if not title_var.get().strip():
+                messagebox.showwarning("Title Required",
+                                       "Please enter a listing title.",
+                                       parent=dlg)
+                return
+            _result[0] = (title_var.get().strip(), pic_var.get().strip())
+            dlg.destroy()
+
+        def _on_cancel():
+            dlg.destroy()
+
+        tk.Button(btn_frame, text="Cancel", command=_on_cancel,
+                  bg="#2a2a4a", fg="#a0a0b0", relief="flat",
+                  font=("Helvetica", 10), cursor="hand2",
+                  padx=10, pady=5).pack(side="left", padx=(0, 6))
+
+        tk.Button(btn_frame, text="Export CSV…", command=_on_export,
+                  bg="#145214", fg="white", activebackground="#1e7a1e",
+                  relief="flat", font=("Helvetica", 10, "bold"),
+                  cursor="hand2", padx=14, pady=5).pack(side="left")
+
+        dlg.columnconfigure(0, weight=1)
+        title_entry.focus_set()
+        dlg.protocol("WM_DELETE_WINDOW", _on_cancel)
+
+        # Centre on parent
+        dlg.update_idletasks()
+        pw, ph = self.winfo_width(), self.winfo_height()
+        px, py = self.winfo_rootx(), self.winfo_rooty()
+        dw, dh = dlg.winfo_width(), dlg.winfo_height()
+        dlg.geometry(f"+{px + (pw - dw) // 2}+{py + (ph - dh) // 2}")
+
+        self.wait_window(dlg)
+        return _result[0]
+
+    def _show_sticker_mask_dialog(self, br: "BatchRow"):
+        """
+        Show the full original scan for br in a Toplevel and let the user draw
+        a rectangle over the sticker region.  On Apply the mask is stored in
+        br.sticker_mask_px (original scan pixel coords) and re-identification
+        is triggered.
+        """
+        import threading
+        import cv2 as _cv2
+        from PIL import Image as _PILImage
+
+        _data = [None]   # (pil_img, orig_w, orig_h, scale)
+        _err  = [None]
+
+        def _load():
+            try:
+                bgr = _cv2.imread(str(br.image_path))
+                if bgr is None:
+                    raise ValueError("Cannot read scan image")
+                oh, ow = bgr.shape[:2]
+                scale  = min(1.0, 700 / max(oh, ow))
+                dw     = int(ow * scale)
+                dh     = int(oh * scale)
+                rgb    = _cv2.cvtColor(bgr, _cv2.COLOR_BGR2RGB)
+                pil    = _PILImage.fromarray(rgb).resize((dw, dh), _PILImage.LANCZOS)
+                _data[0] = (pil, ow, oh, scale)
+            except Exception as exc:
+                _err[0] = str(exc)
+            self.after(0, _on_loaded)
+
+        def _on_loaded():
+            if _err[0]:
+                messagebox.showerror("Sticker Mask", f"Could not load scan:\n{_err[0]}")
+                return
+            pil, orig_w, orig_h, scale = _data[0]
+            _build_dialog(pil, scale)
+
+        def _build_dialog(pil_img, scale):
+            from PIL import ImageTk as _ITk
+            dw, dh = pil_img.size
+
+            dlg = tk.Toplevel(self)
+            dlg.title("Draw Sticker Mask")
+            dlg.configure(bg="#1a1a2e")
+            dlg.resizable(False, False)
+            dlg.grab_set()
+
+            tk.Label(dlg,
+                     text="Click and drag to draw a rectangle over the sticker. Press Apply to re-identify.",
+                     bg="#1a1a2e", fg="#a0a0b0", font=("Helvetica", 10)).pack(
+                pady=(10, 4), padx=12)
+
+            canvas = tk.Canvas(dlg, width=dw, height=dh,
+                               bg="#0d0d1a", cursor="crosshair",
+                               highlightthickness=0)
+            canvas.pack(padx=12, pady=4)
+
+            _photo = _ITk.PhotoImage(pil_img)
+            canvas.create_image(0, 0, anchor="nw", image=_photo)
+            canvas._photo_ref = _photo   # prevent GC
+
+            _rect_id = [None]
+            _sel     = [None]   # (x1, y1, x2, y2) in DISPLAY pixels
+
+            # Restore existing mask if any
+            if br.sticker_mask_px:
+                mx, my, mbw, mbh = br.sticker_mask_px
+                rx1 = mx * scale;  ry1 = my * scale
+                rx2 = (mx + mbw) * scale;  ry2 = (my + mbh) * scale
+                _sel[0] = (rx1, ry1, rx2, ry2)
+                _rect_id[0] = canvas.create_rectangle(
+                    rx1, ry1, rx2, ry2,
+                    outline="#ff4444", width=2, dash=(4, 4))
+
+            _drag_start = [None]
+
+            def _on_press(e):
+                _drag_start[0] = (e.x, e.y)
+                if _rect_id[0] is not None:
+                    canvas.delete(_rect_id[0])
+                _rect_id[0] = canvas.create_rectangle(
+                    e.x, e.y, e.x, e.y,
+                    outline="#ff4444", width=2, dash=(4, 4))
+
+            def _on_drag(e):
+                if _drag_start[0] and _rect_id[0]:
+                    x0, y0 = _drag_start[0]
+                    canvas.coords(_rect_id[0], x0, y0, e.x, e.y)
+
+            def _on_release(e):
+                if _drag_start[0]:
+                    x0, y0 = _drag_start[0]
+                    _sel[0] = (x0, y0, e.x, e.y)
+                    _drag_start[0] = None
+
+            canvas.bind("<ButtonPress-1>",   _on_press)
+            canvas.bind("<B1-Motion>",       _on_drag)
+            canvas.bind("<ButtonRelease-1>", _on_release)
+
+            btn_row = tk.Frame(dlg, bg="#1a1a2e")
+            btn_row.pack(pady=(4, 10), padx=12)
+
+            def _apply():
+                if _sel[0]:
+                    x1, y1, x2, y2 = _sel[0]
+                    x, y   = min(x1, x2), min(y1, y2)
+                    bw, bh = abs(x2 - x1), abs(y2 - y1)
+                    if bw > 2 and bh > 2:
+                        # Convert from display pixels back to original scan pixel space
+                        br.sticker_mask_px = (
+                            int(x  / scale), int(y  / scale),
+                            int(bw / scale), int(bh / scale),
+                        )
+                dlg.destroy()
+                self._reidentify_row(br)
+
+            def _clear():
+                br.sticker_mask_px = None
+                dlg.destroy()
+                self._reidentify_row(br)
+
+            _btn_kw = dict(fg="white", activebackground="#533483",
+                           font=("Helvetica", 10, "bold"), relief="flat",
+                           padx=12, pady=6, cursor="hand2")
+            tk.Button(btn_row, text="Apply Mask", command=_apply,
+                      bg="#0f3460", **_btn_kw).pack(side="left", padx=6)
+            tk.Button(btn_row, text="Clear Mask", command=_clear,
+                      bg="#5a1a1a", **_btn_kw).pack(side="left", padx=6)
+            tk.Button(btn_row, text="Cancel", command=dlg.destroy,
+                      bg="#2a2a4a", fg="#a0a0b0", relief="flat",
+                      font=("Helvetica", 10), padx=10, pady=6,
+                      cursor="hand2").pack(side="left", padx=6)
+
+        threading.Thread(target=_load, daemon=True).start()
+
+    def _combine_duplicate_rows(self):
+        """Collapse rows with the same card_id + finish + condition, summing quantities."""
+        if not self._batch_rows:
+            return
+        seen: dict = {}       # key → first BatchRow
+        to_delete: list = []  # (BatchRow, frame) pairs to remove
+
+        for br in self._batch_rows:
+            top = br.candidates[br.current_idx] if br.candidates else {}
+            w = br.widgets
+            if not w:
+                continue
+            key = (
+                top.get("card_id", "") or "",
+                w.get("finish_var") and w["finish_var"].get() or "",
+                w.get("cond_var") and w["cond_var"].get() or "",
+            )
+            if key[0] == "":  # no card identified — skip
+                continue
+            if key not in seen:
+                seen[key] = br
+            else:
+                keeper = seen[key]
+                try:
+                    keeper_qty = int(keeper.widgets["qty_var"].get() or 1)
+                    dup_qty = int(w["qty_var"].get() or 1)
+                    keeper.widgets["qty_var"].set(str(keeper_qty + dup_qty))
+                except (ValueError, KeyError):
+                    pass
+                to_delete.append((br, w.get("frame")))
+
+        for br, frame in to_delete:
+            if frame:
+                frame.destroy()
+            if br in self._batch_rows:
+                self._batch_rows.remove(br)
+
+        merged = len(to_delete)
+        kept = len(self._batch_rows)
+        if merged:
+            messagebox.showinfo(
+                "Combine Duplicates",
+                f"Merged {merged} duplicate row(s).\n{kept} listing(s) remain.")
+        else:
+            messagebox.showinfo(
+                "Combine Duplicates",
+                "No exact duplicates found (same card, condition, and variant).")
+
     def _export_ebay_csv(self):
         """Export the current batch to an eBay bulk-upload CSV file."""
         if not self._batch_rows:
             messagebox.showwarning("No Data", "No batch rows to export. Run a batch scan first.")
             return
+
+        from config import _load_settings
+        from ebay.exporter import export_csv
+        settings = _load_settings()
+
+        export_type = getattr(self, "_export_type_var", None)
+        export_type = export_type.get() if export_type else "Regular"
+
+        # ── Variation mode: prompt for shared title + gallery image ───────────
+        # (Show this first so the user can cancel before the file-save dialog)
+        variation_title   = ""
+        variation_pic_url = ""
+        if export_type == "Variation":
+            result = self._show_variation_setup_dialog(settings)
+            if result is None:
+                return   # user cancelled
+            variation_title, variation_pic_url = result
 
         out_path = filedialog.asksaveasfilename(
             title="Save eBay CSV",
@@ -2329,10 +2778,6 @@ class CardIdentifierApp(tk.Tk):
         )
         if not out_path:
             return
-
-        from config import _load_settings
-        from ebay.exporter import export_csv
-        settings = _load_settings()
 
         # Check if imgbb auto-upload is enabled so we can show a progress dialog
         api_key    = (settings.get("ebay_imgbb_api_key") or "").strip()
@@ -2362,7 +2807,10 @@ class CardIdentifierApp(tk.Tk):
 
             try:
                 n = export_csv(self._batch_rows, out_path, settings,
-                               progress_callback=_on_progress)
+                               progress_callback=_on_progress,
+                               export_type=export_type,
+                               variation_title=variation_title,
+                               variation_pic_url=variation_pic_url)
             except Exception as exc:
                 prog_win.destroy()
                 messagebox.showerror("Export Failed", str(exc))
@@ -2370,7 +2818,10 @@ class CardIdentifierApp(tk.Tk):
             prog_win.destroy()
         else:
             try:
-                n = export_csv(self._batch_rows, out_path, settings)
+                n = export_csv(self._batch_rows, out_path, settings,
+                               export_type=export_type,
+                               variation_title=variation_title,
+                               variation_pic_url=variation_pic_url)
             except Exception as exc:
                 messagebox.showerror("Export Failed", str(exc))
                 return
@@ -2792,6 +3243,37 @@ LLC Scanner  v1-beta2  -  (c) 2026 Kyle Fernandez  -  LowLatencyCards
                           font=("Helvetica", 10, "bold"), anchor="w")
 
         r = 0
+        tk.Label(inner, text="Identification", **section_kw).grid(
+            row=r, column=0, columnspan=2, sticky="w", padx=12, pady=(12, 2)); r += 1
+
+        tk.Label(inner, text="Matcher Mode", **lbl_kw).grid(
+            row=r, column=0, sticky="w", padx=(12, 6), pady=(6, 0))
+        v_matcher_mode = tk.StringVar(value=self._matcher_mode.get())
+        ttk.Combobox(inner, textvariable=v_matcher_mode,
+                     values=["Hash", "ML (GPU)", "Hybrid (both)"],
+                     state="readonly", width=20,
+                     font=("Helvetica", 10)).grid(
+            row=r, column=1, sticky="w", padx=(0, 12), pady=(6, 0)); r += 1
+
+        tk.Label(inner, text="Sticker Detection", **lbl_kw).grid(
+            row=r, column=0, sticky="w", padx=(12, 6), pady=(6, 0))
+        v_sticker_auto = tk.BooleanVar(value=self._sticker_auto_detect.get())
+        tk.Checkbutton(inner, text="Auto-detect & remove price stickers",
+                       variable=v_sticker_auto,
+                       bg="#1a1a2e", fg="white", selectcolor="#0d0d1a",
+                       activebackground="#1a1a2e",
+                       font=("Helvetica", 10)).grid(
+            row=r, column=1, sticky="w", padx=(0, 12), pady=(6, 0)); r += 1
+
+        v_sticker_manual = tk.BooleanVar(value=self._sticker_manual_fallback.get())
+        tk.Checkbutton(inner,
+                       text="Allow manual sticker selection (adds \U0001f3f7 button to batch rows)",
+                       variable=v_sticker_manual,
+                       bg="#1a1a2e", fg="white", selectcolor="#0d0d1a",
+                       activebackground="#1a1a2e",
+                       font=("Helvetica", 10)).grid(
+            row=r, column=0, columnspan=2, sticky="w", padx=12, pady=(4, 0)); r += 1
+
         tk.Label(inner, text="Listing Defaults", **section_kw).grid(
             row=r, column=0, columnspan=2, sticky="w", padx=12, pady=(12, 2)); r += 1
 
@@ -2989,7 +3471,13 @@ LLC Scanner  v1-beta2  -  (c) 2026 Kyle Fernandez  -  LowLatencyCards
         btn_frame.grid(row=r, column=0, columnspan=2, pady=(4, 16))
 
         def _save():
+            self._matcher_mode.set(v_matcher_mode.get())
+            self._sticker_auto_detect.set(v_sticker_auto.get())
+            self._sticker_manual_fallback.set(v_sticker_manual.get())
             save_settings(extra={
+                "matcher_mode":              v_matcher_mode.get(),
+                "sticker_auto_detect":       v_sticker_auto.get(),
+                "sticker_manual_fallback":   v_sticker_manual.get(),
                 "ebay_location":             v_location.get().strip(),
                 "ebay_category_id":          v_category.get().strip(),
                 "ebay_store_category":       v_store_cat.get().strip(),

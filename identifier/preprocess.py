@@ -19,7 +19,9 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from config import HASH_IMAGE_SIZE, EMBEDDING_INPUT_SIZE
+from config import (HASH_IMAGE_SIZE, EMBEDDING_INPUT_SIZE,
+                    STICKER_AUTO_DETECT, STICKER_INPAINT_RADIUS,
+                    CLAHE_ENABLED, CLAHE_CLIP_LIMIT, CLAHE_TILE_SIZE)
 
 # Standard Pokemon card aspect ratio: height / width  (88 mm / 63 mm ≈ 1.396)
 _CARD_ASPECT = 88 / 63
@@ -27,6 +29,37 @@ _CARD_ASPECT = 88 / 63
 # ImageNet normalisation constants (timm standard)
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+# CLAHE object (created lazily on first use)
+_clahe: "cv2.cuda.CLAHE | None" = None
+
+
+def _get_clahe() -> "cv2.cuda.CLAHE | None":
+    """Lazily create CLAHE object with configured parameters."""
+    global _clahe
+    if _clahe is None and CLAHE_ENABLED:
+        _clahe = cv2.createCLAHE(clipLimit=CLAHE_CLIP_LIMIT, tileGridSize=CLAHE_TILE_SIZE)
+    return _clahe
+
+
+def _apply_clahe(bgr: np.ndarray) -> np.ndarray:
+    """Apply CLAHE to the BGR image and return the result.
+
+    Applies to the L channel in LAB color space for better color preservation.
+    Handles both CPU and GPU CLAHE gracefully.
+    """
+    clahe = _get_clahe()
+    if clahe is None:
+        return bgr
+
+    try:
+        # Try GPU version first (faster on systems with CUDA)
+        lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+        lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    except Exception:
+        # Fallback: just return original if CLAHE fails
+        return bgr
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
@@ -177,19 +210,71 @@ def _center_crop_to_card(img_bgr: np.ndarray, target_size: tuple[int, int]) -> n
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def preprocess_for_hashing(image_path: str) -> Image.Image:
+def preprocess_to_card_image(image_path: str) -> np.ndarray:
+    """
+    Extract and return the card region as a BGR numpy array at HASH_IMAGE_SIZE.
+
+    Applies the same quad-detection / perspective-warp / centre-crop logic as
+    preprocess_for_hashing but returns the raw BGR array instead of computing
+    hashes.  Used by the GUI to display the card crop in the sticker-mask
+    dialog so the user can draw a mask in card-image coordinates.
+    """
+    img_bgr = cv2.imread(str(image_path))
+    if img_bgr is None:
+        raise ValueError(f"Cannot read image: {image_path}")
+
+    h, w = img_bgr.shape[:2]
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    quad = _detect_card_quad(gray, h, w)
+
+    if quad is not None:
+        warped = _four_point_transform(img_bgr, quad)
+        return (
+            cv2.resize(warped, HASH_IMAGE_SIZE)
+            if warped is not None
+            else _center_crop_to_card(img_bgr, HASH_IMAGE_SIZE)
+        )
+    return _center_crop_to_card(img_bgr, HASH_IMAGE_SIZE)
+
+
+def preprocess_for_hashing(image_path: str,
+                            sticker_mask_px: "tuple | None" = None,
+                            auto_detect: "bool | None" = None) -> Image.Image:
     """
     Full card-detection preprocessing pipeline for the hash matcher.
 
     1. Detect card boundary via Canny / adaptive / Otsu edge detection
     2. Validate detected quad has card-like aspect ratio
     3. Apply perspective warp; fallback to centre-crop if no valid quad found
-    4. Resize to HASH_IMAGE_SIZE and return as RGB PIL Image
+    4. Optionally detect and inpaint price stickers
+    5. Resize to HASH_IMAGE_SIZE and return as RGB PIL Image
+
+    Parameters
+    ----------
+    sticker_mask_px : tuple | None
+        Manual sticker region as (x, y, bw, bh) in HASH_IMAGE_SIZE pixel
+        space (300×420).  If provided, the region is inpainted before hashing
+        regardless of the auto_detect setting.
+    auto_detect : bool | None
+        Whether to run automatic sticker detection.  None → use the
+        STICKER_AUTO_DETECT config constant (default True).
     """
+    from identifier.sticker import detect_sticker, inpaint_sticker, mask_from_rect
+
+    _auto = auto_detect if auto_detect is not None else STICKER_AUTO_DETECT
+
     img_bgr = cv2.imread(str(image_path))
     if img_bgr is None:
         raise ValueError(f"Cannot read image: {image_path}")
 
+    # ── Manual mask: inpaint on full scan BEFORE card extraction ─────────────
+    # sticker_mask_px is in original scan pixel coordinates.
+    if sticker_mask_px is not None:
+        ih, iw = img_bgr.shape[:2]
+        manual_mask = mask_from_rect(ih, iw, sticker_mask_px)
+        img_bgr = inpaint_sticker(img_bgr, manual_mask, STICKER_INPAINT_RADIUS)
+
+    # Card extraction
     h, w = img_bgr.shape[:2]
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     quad = _detect_card_quad(gray, h, w)
@@ -204,17 +289,29 @@ def preprocess_for_hashing(image_path: str) -> Image.Image:
     else:
         card_bgr = _center_crop_to_card(img_bgr, HASH_IMAGE_SIZE)
 
+    # ── Auto-detect: runs on the extracted card crop (no manual mask set) ─────
+    if sticker_mask_px is None and _auto:
+        auto_mask = detect_sticker(card_bgr)
+        if auto_mask is not None:
+            card_bgr = inpaint_sticker(card_bgr, auto_mask, STICKER_INPAINT_RADIUS)
+
+    # ── CLAHE: normalize brightness/contrast for aged/yellowed cards ────────────
+    card_bgr = _apply_clahe(card_bgr)
+
     rgb = cv2.cvtColor(card_bgr, cv2.COLOR_BGR2RGB)
     return Image.fromarray(rgb)
 
 
-def preprocess_for_embedding(image_path: str) -> np.ndarray:
+def preprocess_for_embedding(image_path: str,
+                              sticker_mask_px: "tuple | None" = None,
+                              auto_detect: "bool | None" = None) -> np.ndarray:
     """
     Simple preprocessing for the ML embedding matcher.
 
     Centre-crops the image to card aspect ratio, resizes to
     EMBEDDING_INPUT_SIZE × EMBEDDING_INPUT_SIZE (518 for DINOv2, 224 for
-    EfficientNet-B0), and normalises with ImageNet mean/std (timm convention).
+    EfficientNet-B0), optionally removes price stickers, then normalises with
+    ImageNet mean/std (timm convention).
 
     Returns a float32 numpy array of shape (3, S, S) in CHW layout where
     S = EMBEDDING_INPUT_SIZE, ready to be converted to a torch tensor with
@@ -223,13 +320,43 @@ def preprocess_for_embedding(image_path: str) -> np.ndarray:
     Does NOT apply perspective warp — pretrained ViTs are robust to mild
     angle/perspective variation, and an incorrect warp can corrupt card
     artwork and degrade accuracy.
+
+    Parameters
+    ----------
+    sticker_mask_px : tuple | None
+        Manual sticker region as (x, y, bw, bh) in **original scan** pixel
+        space (same as drawn in the sticker mask dialog).  Applied to the
+        full scan before centre-crop.
+    auto_detect : bool | None
+        Whether to run automatic sticker detection.  None → use the
+        STICKER_AUTO_DETECT config constant.
     """
+    from identifier.sticker import detect_sticker, inpaint_sticker, mask_from_rect
+
+    _auto = auto_detect if auto_detect is not None else STICKER_AUTO_DETECT
+
     img_bgr = cv2.imread(str(image_path))
     if img_bgr is None:
         raise ValueError(f"Cannot read image: {image_path}")
 
+    # ── Manual mask: inpaint on full scan BEFORE centre-crop ─────────────────
+    if sticker_mask_px is not None:
+        ih, iw = img_bgr.shape[:2]
+        manual_mask = mask_from_rect(ih, iw, sticker_mask_px)
+        img_bgr = inpaint_sticker(img_bgr, manual_mask, STICKER_INPAINT_RADIUS)
+
     size = EMBEDDING_INPUT_SIZE   # 518 for DINOv2, 224 for EfficientNet-B0
     card_bgr = _center_crop_to_card(img_bgr, (size, size))
+
+    # ── Auto-detect: runs on the extracted card crop (no manual mask set) ─────
+    if sticker_mask_px is None and _auto:
+        auto_mask = detect_sticker(card_bgr)
+        if auto_mask is not None:
+            card_bgr = inpaint_sticker(card_bgr, auto_mask, STICKER_INPAINT_RADIUS)
+
+    # ── CLAHE: normalize brightness/contrast for aged/yellowed cards ────────────
+    card_bgr = _apply_clahe(card_bgr)
+
     rgb = cv2.cvtColor(card_bgr, cv2.COLOR_BGR2RGB)
 
     # Normalise: scale to [0,1] then apply ImageNet mean/std

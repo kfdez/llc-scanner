@@ -101,7 +101,9 @@ from identifier.preprocess import _IMAGENET_MEAN, _IMAGENET_STD  # noqa: E402
 from cards.embedding_computer import _get_model as _get_model_for_tta  # noqa: E402
 
 
-def _embed_with_tta(image_path: str, num_crops: int = 4) -> np.ndarray:
+def _embed_with_tta(image_path: str, num_crops: int = 4,
+                    sticker_mask_px: "tuple | None" = None,
+                    auto_detect: "bool | None" = None) -> np.ndarray:
     """
     Compute a TTA-averaged embedding for a single query image.
 
@@ -112,11 +114,20 @@ def _embed_with_tta(image_path: str, num_crops: int = 4) -> np.ndarray:
     to ensure a reproducible baseline; subsequent crops apply ±8% random
     scale/position jitter to reduce sensitivity to exact alignment.
 
+    Sticker compensation is applied to all crops: if sticker_mask_px is
+    given it is scaled to each crop's size; otherwise auto-detection runs
+    on the first crop and the same mask is reused for subsequent crops.
+
     Returns shape (768,) float32, L2-normalised.
     """
     import cv2
     import torch
-    from config import EMBEDDING_INPUT_SIZE
+    from config import EMBEDDING_INPUT_SIZE, STICKER_AUTO_DETECT, STICKER_INPAINT_RADIUS
+    from identifier.sticker import (
+        detect_sticker, inpaint_sticker, mask_from_rect, scale_rect,
+    )
+
+    _auto = auto_detect if auto_detect is not None else STICKER_AUTO_DETECT
 
     # Standard Pokemon card aspect ratio: height / width  (88 mm / 63 mm)
     _CARD_ASPECT = 88 / 63
@@ -125,8 +136,18 @@ def _embed_with_tta(image_path: str, num_crops: int = 4) -> np.ndarray:
     if img_bgr is None:
         raise ValueError(f"Cannot read image: {image_path}")
 
+    # ── Manual mask: inpaint on full scan BEFORE any cropping ────────────────
+    # sticker_mask_px is in original scan pixel coordinates.
+    if sticker_mask_px is not None:
+        mh, mw = img_bgr.shape[:2]
+        manual_m = mask_from_rect(mh, mw, sticker_mask_px)
+        img_bgr = inpaint_sticker(img_bgr, manual_m, STICKER_INPAINT_RADIUS)
+
     h, w = img_bgr.shape[:2]
     model, device = _get_model_for_tta()
+
+    # Auto-detect mask in 518×518 space — detected on first crop, reused for rest
+    _sticker_mask_518: "np.ndarray | None" = None
 
     arrays = []
     for i in range(num_crops):
@@ -150,6 +171,14 @@ def _embed_with_tta(image_path: str, num_crops: int = 4) -> np.ndarray:
             cropped = img_bgr[:, x0: x0 + crop_w]
 
         resized = cv2.resize(cropped, (EMBEDDING_INPUT_SIZE, EMBEDDING_INPUT_SIZE))
+
+        # Auto-detect on first crop (only when no manual mask was set); reuse for rest
+        if i == 0 and _auto and sticker_mask_px is None:
+            _sticker_mask_518 = detect_sticker(resized)
+
+        if _sticker_mask_518 is not None:
+            resized = inpaint_sticker(resized, _sticker_mask_518, STICKER_INPAINT_RADIUS)
+
         rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
 
         arr = rgb.astype(np.float32) / 255.0
@@ -172,7 +201,9 @@ def _embed_with_tta(image_path: str, num_crops: int = 4) -> np.ndarray:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def identify_card_embedding(image_path: str) -> list[dict]:
+def identify_card_embedding(image_path: str,
+                            sticker_mask_px: "tuple | None" = None,
+                            auto_detect: "bool | None" = None) -> list[dict]:
     """
     Identify a card from an image file using the ML embedding matcher.
 
@@ -193,7 +224,9 @@ def identify_card_embedding(image_path: str) -> list[dict]:
         return []
 
     # Compute TTA query embedding (768-dim, L2-normalised)
-    query_vec = _embed_with_tta(image_path)       # (768,) float32
+    query_vec = _embed_with_tta(image_path,
+                                sticker_mask_px=sticker_mask_px,
+                                auto_detect=auto_detect)  # (768,) float32
     query_matrix = query_vec.reshape(1, -1)        # (1, 768) for FAISS
 
     # index.search returns (similarities, indices) each of shape (1, k)
