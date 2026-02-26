@@ -3323,6 +3323,13 @@ LLC Scanner  v1-beta2  -  (c) 2026 Kyle Fernandez  -  LowLatencyCards
         v_dispatch   = _field(inner, "ebay_dispatch_days",   "Handling Time (days)", r, 10); r += 1
         v_site_params = _field(inner, "ebay_site_params",    "Site Parameters",      r); r += 1
 
+        tk.Label(inner, text="Package Info (for eBay CSV)", **section_kw).grid(
+            row=r, column=0, columnspan=2, sticky="w", padx=12, pady=(12, 2)); r += 1
+
+        v_postal     = _field(inner, "ebay_postal_code",    "Postal Code",         r, 15); r += 1
+        v_weight     = _field(inner, "ebay_package_weight", "Package Weight (g)",   r, 10); r += 1
+        v_dims       = _field(inner, "ebay_package_dims",   "Dimensions (L x W x H cm)", r, 25); r += 1
+
         tk.Label(inner, text="Best Offer", **section_kw).grid(
             row=r, column=0, columnspan=2, sticky="w", padx=12, pady=(12, 2)); r += 1
         v_best_offer = tk.BooleanVar(value=bool(int(_get("ebay_best_offer_enabled") or 1)))
@@ -3519,6 +3526,9 @@ LLC Scanner  v1-beta2  -  (c) 2026 Kyle Fernandez  -  LowLatencyCards
                 "sticker_auto_detect":       v_sticker_auto.get(),
                 "sticker_manual_fallback":   v_sticker_manual.get(),
                 "ebay_location":             v_location.get().strip(),
+                "ebay_postal_code":          v_postal.get().strip(),
+                "ebay_package_weight":      v_weight.get().strip(),
+                "ebay_package_dims":        v_dims.get().strip(),
                 "ebay_category_id":          v_category.get().strip(),
                 "ebay_store_category":       v_store_cat.get().strip(),
                 "ebay_dispatch_days":        v_dispatch.get().strip(),

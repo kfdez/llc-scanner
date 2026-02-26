@@ -54,6 +54,38 @@ _FINISH_MAP: dict[str, str] = {
     "Master Ball Holo": "Holofoil",
 }
 
+
+# ---------------------------------------------------------------------------
+# Weight/dimension parsing helpers for eBay CSV
+# ---------------------------------------------------------------------------
+def _parse_weight(weight_g: str) -> tuple[str, str, str]:
+    """Parse weight in grams and return (WeightMajor, WeightMinor, WeightUnit).
+
+    Example: "85" → ("0", "85", "kg")
+    """
+    try:
+        grams = int(weight_g)
+    except (ValueError, TypeError):
+        grams = 85
+    weight_major = grams // 1000  # 0 for < 1kg
+    weight_minor = grams % 1000   # remainder in grams
+    return str(weight_major), str(weight_minor), "kg"
+
+
+def _parse_dims(dims: str) -> tuple[str, str, str]:
+    """Parse dimensions string "L x W x H" in cm and return (length, width, depth).
+
+    Example: "15 x 10 x 0.5" → ("15", "10", "0.5")
+    """
+    try:
+        parts = dims.replace("x", " ").split()
+        length = parts[0].strip() if len(parts) > 0 else "15"
+        width = parts[1].strip() if len(parts) > 1 else "10"
+        depth = parts[2].strip() if len(parts) > 2 else "0.5"
+    except Exception:
+        length, width, depth = "15", "10", "0.5"
+    return length, width, depth
+
 # ---------------------------------------------------------------------------
 # Column header row (row 2 of the CSV).
 # The Action column header embeds the site parameters — must match exactly.
@@ -135,6 +167,13 @@ _COLUMNS = [
     "ShippingService-1:Cost",
     "ShippingService-2:Option",
     "ShippingService-2:Cost",
+    "WeightMajor",
+    "WeightMinor",
+    "WeightUnit",
+    "PackageLength",
+    "PackageWidth",
+    "PackageDepth",
+    "PostalCode",
     "*DispatchTimeMax",
     "PromotionalShippingDiscount",
     "ShippingDiscountProfileID",
@@ -256,6 +295,35 @@ def _build_description(candidate: dict, cond: str, template: str,
     return result
 
 
+def _variation_label(candidate: dict, widgets: dict, set_name: str,
+                     row_number: int = 0) -> str:
+    """Generate the eBay variation label used in RelationshipDetails and PicURL.
+
+    Format: '<Card Name> <Set Name> <Number> - <Cond Short> #<row>'
+    e.g.    'Sprigatito Gem Pack Volume 1 0101/09 - NM #001'
+
+    row_number is appended (zero-padded to 3 digits) to guarantee uniqueness
+    even when the same card appears multiple times in a batch.
+    """
+    name   = candidate.get("name") or ""
+    number = candidate.get("number") or ""
+    cond   = (widgets.get("cond_var") and widgets["cond_var"].get()) if widgets else "Near Mint"
+    cond_short = {
+        "Near Mint":         "NM",
+        "Lightly Played":    "LP",
+        "Moderately Played": "MP",
+        "Heavily Played":    "HP",
+        "Damaged":           "DMG",
+    }.get(cond, cond)
+    parts = [p for p in [name, set_name, number] if p]
+    label = " ".join(parts)
+    if cond_short:
+        label = f"{label} - {cond_short}"
+    if row_number > 0:
+        label = f"{label} #{str(row_number).zfill(3)}"
+    return label
+
+
 def build_row(
     candidate: dict,
     widgets: dict,
@@ -276,7 +344,6 @@ def build_row(
     # --- User-entered widget values ---
     label    = widgets["label_var"].get().strip()
     finish   = widgets["finish_var"].get()
-    edition  = widgets["edition_var"].get()
     cond     = widgets["cond_var"].get()
     qty      = widgets["qty_var"].get()
     price    = widgets["price_var"].get()
@@ -286,7 +353,9 @@ def build_row(
 
     # --- Derived values ---
     cond_id, cond_display = _CONDITION_MAP.get(cond, ("4000", "Near mint or better - (ID: 400010)"))
-    ebay_finish = _FINISH_MAP.get(finish, finish)
+    # Strip parenthetical suffix before mapping (e.g. "Holo (Shadowless)" → "Holo")
+    _finish_base = finish.split("(")[0].strip()
+    ebay_finish = _FINISH_MAP.get(_finish_base, _FINISH_MAP.get(finish, finish))
     card_type = _parse_types(candidate.get("types", ""))
 
     # Title from widget (already built by _build_title)
@@ -317,6 +386,10 @@ def build_row(
     pic_url = _pic_url(candidate_with_scan, settings)
 
     best_offer = "1" if settings.get("ebay_best_offer_enabled", True) else "0"
+
+    # Precompute weight and dimensions for eBay CSV
+    weight_major, weight_minor, weight_unit = _parse_weight(settings.get("ebay_package_weight", "85"))
+    pkg_length, pkg_width, pkg_depth = _parse_dims(settings.get("ebay_package_dims", "15 x 10 x 0.5"))
 
     row: dict[str, str] = {col: "" for col in _COLUMNS}
     row.update({
@@ -351,14 +424,21 @@ def build_row(
         "*Quantity":                       qty,
         "ImmediatePayRequired":            "",
         "*Location":                       settings.get("ebay_location", ""),
+        "PostalCode":                      settings.get("ebay_postal_code", ""),
+        "WeightMajor":                     weight_major,
+        "WeightMinor":                     weight_minor,
+        "WeightUnit":                      weight_unit,
+        "PackageLength":                   pkg_length,
+        "PackageWidth":                    pkg_width,
+        "PackageDepth":                    pkg_depth,
         "*DispatchTimeMax":                settings.get("ebay_dispatch_days", "1"),
         "ShippingProfileName":             settings.get("ebay_shipping_profile", ""),
         "ReturnProfileName":               settings.get("ebay_return_profile", ""),
         "PaymentProfileName":              settings.get("ebay_payment_profile", ""),
     })
 
-    # 1st Edition: append to C:Features when applicable
-    if edition and edition != "Unlimited":
+    # 1st Edition: detect from finish label (e.g. "Holo (Shadowless, 1st Ed)")
+    if "1st Ed" in finish:
         row["*C:Features"] = "1st Edition"
 
     return row
@@ -414,6 +494,9 @@ def export_csv(
     output_path: str | Path,
     settings: dict,
     progress_callback=None,
+    export_type: str = "Regular",
+    variation_title: str = "",
+    variation_pic_url: str = "",
 ) -> int:
     """Write the eBay CSV file and return the number of data rows written.
 
@@ -423,6 +506,9 @@ def export_csv(
     output_path       : destination file path
     settings          : dict from config._load_settings()
     progress_callback : optional callable(done: int, total: int) for upload progress
+    export_type       : "Regular" (default) or "Variation" (eBay multi-variation format)
+    variation_title   : shared listing title for Variation mode (required when export_type="Variation")
+    variation_pic_url : shared gallery image URL for Variation mode parent row
     """
     output_path = Path(output_path)
     site_params = settings.get("ebay_site_params",
@@ -447,44 +533,163 @@ def export_csv(
                                 extrasaction="ignore")
         writer.writeheader()
 
-        for br in batch_rows:
-            if not br.candidates:
-                continue
-            top = br.candidates[br.current_idx]
+        action_key = _action_header(site_params)
 
-            # If we uploaded this scan to imgbb, inject the URL into settings
-            # for _pic_url() to pick up via the pic_url_base mechanism, or
-            # pass it directly via a special override key in settings.
-            row_settings = dict(settings)
-            if br.image_path:
-                # Normalise to resolved absolute path for lookup, fall back to raw string
-                _key = str(Path(br.image_path).resolve())
-                _front_url = imgbb_url_map.get(_key) or imgbb_url_map.get(str(br.image_path))
+        # Precompute weight and dimensions for eBay CSV (used in all export paths)
+        weight_major, weight_minor, weight_unit = _parse_weight(settings.get("ebay_package_weight", "85"))
+        pkg_length, pkg_width, pkg_depth = _parse_dims(settings.get("ebay_package_dims", "15 x 10 x 0.5"))
 
-                # Also look up back image URL (if front/back mode was used)
-                _back_url = ""
-                _back_path = getattr(br, "back_image_path", "") or ""
-                if _back_path:
-                    _bkey = str(Path(_back_path).resolve())
-                    _back_url = imgbb_url_map.get(_bkey) or imgbb_url_map.get(str(_back_path)) or ""
+        if export_type != "Variation":
+            # ── Regular export: one row per batch entry ───────────────────────
+            for br in batch_rows:
+                if not br.candidates:
+                    continue
+                top = br.candidates[br.current_idx]
 
-                # Pipe-join front|back when both are available, otherwise use whichever exists
-                if _front_url and _back_url:
-                    row_settings["_imgbb_url_override"] = f"{_front_url}|{_back_url}"
-                elif _front_url:
-                    row_settings["_imgbb_url_override"] = _front_url
+                # If we uploaded this scan to imgbb, inject the URL into settings
+                # for _pic_url() to pick up via the pic_url_base mechanism, or
+                # pass it directly via a special override key in settings.
+                row_settings = dict(settings)
+                if br.image_path:
+                    # Normalise to resolved absolute path for lookup, fall back to raw string
+                    _key = str(Path(br.image_path).resolve())
+                    _front_url = imgbb_url_map.get(_key) or imgbb_url_map.get(str(br.image_path))
 
-            data_row = build_row(
-                candidate=top,
-                widgets=br.widgets,
-                scan_path=br.image_path,
-                row_number=br.row_number,
-                settings=row_settings,
-            )
-            # Remap __action__ key to the real header key
-            action_key = _action_header(site_params)
-            data_row[action_key] = data_row.pop("__action__", "Add")
-            writer.writerow(data_row)
+                    # Also look up back image URL (if front/back mode was used)
+                    _back_url = ""
+                    _back_path = getattr(br, "back_image_path", "") or ""
+                    if _back_path:
+                        _bkey = str(Path(_back_path).resolve())
+                        _back_url = imgbb_url_map.get(_bkey) or imgbb_url_map.get(str(_back_path)) or ""
+
+                    # Pipe-join front|back when both are available, otherwise use whichever exists
+                    if _front_url and _back_url:
+                        row_settings["_imgbb_url_override"] = f"{_front_url}|{_back_url}"
+                    elif _front_url:
+                        row_settings["_imgbb_url_override"] = _front_url
+
+                data_row = build_row(
+                    candidate=top,
+                    widgets=br.widgets,
+                    scan_path=br.image_path,
+                    row_number=br.row_number,
+                    settings=row_settings,
+                )
+                data_row[action_key] = data_row.pop("__action__", "Add")
+                writer.writerow(data_row)
+                rows_written += 1
+
+        if export_type == "Variation":
+            # ── One parent row for the entire batch ──────────────────────────
+            first_br = next((br for br in batch_rows if br.candidates), None)
+            first_top = first_br.candidates[first_br.current_idx] if first_br else {}
+            first_w   = first_br.widgets if first_br else {}
+
+            # Collect ALL variation labels for parent RelationshipDetails
+            all_var_labels: list[str] = []
+            for br in batch_rows:
+                if not br.candidates:
+                    continue
+                _top = br.candidates[br.current_idx]
+                _w   = br.widgets or {}
+                _sn  = (_w.get("set_var") and _w["set_var"].get().strip()) or _top.get("set_name") or ""
+                all_var_labels.append(f"Card={_variation_label(_top, _w, _sn, br.row_number)}")
+
+            first_cond = (first_w.get("cond_var") and first_w["cond_var"].get()) or "Near Mint"
+            _cond_id, _cond_display = _CONDITION_MAP.get(
+                first_cond, ("4000", "Near mint or better - (ID: 400010)"))
+            first_set = (first_w.get("set_var") and first_w["set_var"].get().strip()) or first_top.get("set_name") or ""
+
+            # Parent description: use first row's desc_var if set, else settings template
+            _first_desc = (first_w.get("desc_var") and first_w["desc_var"].get().strip()) or ""
+            if not _first_desc:
+                from config import _EBAY_DEFAULTS as _EDEFS
+                _first_desc = settings.get("ebay_description_template") or _EDEFS.get(
+                    "ebay_description_template", "")
+
+            parent_row = {col: "" for col in headers}
+            parent_row.update({
+                action_key:                        "Add",
+                "CustomLabel":                     "",
+                "*Category":                       settings.get("ebay_category_id", "183454"),
+                "StoreCategory":                   settings.get("ebay_store_category", "0"),
+                "*Title":                          variation_title,
+                "Relationship":                    "",
+                "RelationshipDetails":             ";".join(all_var_labels),
+                "*ConditionID":                    _cond_id,
+                "CD:Card Condition - (ID: 40001)": _cond_display,
+                "*C:Game":                         "Pokémon TCG",
+                "*C:Set":                          first_set,
+                "PicURL":                          variation_pic_url,
+                "*Description":                    _first_desc,
+                "*Format":                         "FixedPrice",
+                "*Duration":                       "GTC",
+                "*Location":                       settings.get("ebay_location", ""),
+                "PostalCode":                      settings.get("ebay_postal_code", ""),
+                "WeightMajor":                     weight_major,
+                "WeightMinor":                     weight_minor,
+                "WeightUnit":                      weight_unit,
+                "PackageLength":                   pkg_length,
+                "PackageWidth":                    pkg_width,
+                "PackageDepth":                    pkg_depth,
+                "*DispatchTimeMax":                settings.get("ebay_dispatch_days", "1"),
+                "ShippingProfileName":             settings.get("ebay_shipping_profile", ""),
+                "ReturnProfileName":               settings.get("ebay_return_profile", ""),
+                "PaymentProfileName":              settings.get("ebay_payment_profile", ""),
+                # BestOfferEnabled intentionally omitted — eBay does not support
+                # Best Offer on multi-variation listings (causes warning 20135).
+            })
+            writer.writerow(parent_row)
             rows_written += 1
+
+            # ── One child row per batch entry ─────────────────────────────────
+            for br in batch_rows:
+                if not br.candidates:
+                    continue
+                _top = br.candidates[br.current_idx]
+                _w   = br.widgets or {}
+
+                _sn     = (_w.get("set_var") and _w["set_var"].get().strip()) or _top.get("set_name") or ""
+                _varlbl = _variation_label(_top, _w, _sn, br.row_number)
+                _cond   = (_w.get("cond_var") and _w["cond_var"].get()) or "Near Mint"
+                _, _cdisplay = _CONDITION_MAP.get(_cond, ("4000", "Near mint or better - (ID: 400010)"))
+                _price  = (_w.get("price_var") and _w["price_var"].get()) or ""
+                _qty    = (_w.get("qty_var")   and _w["qty_var"].get())   or ""
+                _number = _top.get("number") or ""
+
+                # Per-card PicURL: try imgbb upload map first, fall back to TCGdex/local URL
+                _row_settings = dict(settings)
+                if br.image_path:
+                    _rkey  = str(Path(br.image_path).resolve())
+                    _furl  = imgbb_url_map.get(_rkey) or imgbb_url_map.get(str(br.image_path)) or ""
+                    if _furl:
+                        _row_settings["_imgbb_url_override"] = _furl
+                _cand_scan = dict(_top)
+                _cand_scan["image_path"] = br.image_path
+                _card_url  = _pic_url(_cand_scan, _row_settings)
+                _child_pic = f"{_varlbl}={_card_url}" if _card_url else ""
+
+                child_row = {col: "" for col in headers}
+                child_row.update({
+                    action_key:                        "",   # empty on child rows
+                    "Relationship":                    "Variation",
+                    "RelationshipDetails":             f"Card={_varlbl}",
+                    "CD:Card Condition - (ID: 40001)": _cdisplay,
+                    "*C:Set":                          _sn,
+                    "*C:Card Number":                  _number.split("/")[0].strip(),
+                    "PicURL":                          _child_pic,
+                    "*StartPrice":                     _price,
+                    "*Quantity":                       _qty,
+                    "*Location":                       settings.get("ebay_location", ""),
+                    "PostalCode":                      settings.get("ebay_postal_code", ""),
+                    "WeightMajor":                     weight_major,
+                    "WeightMinor":                     weight_minor,
+                    "WeightUnit":                      weight_unit,
+                    "PackageLength":                   pkg_length,
+                    "PackageWidth":                    pkg_width,
+                    "PackageDepth":                    pkg_depth,
+                })
+                writer.writerow(child_row)
+                rows_written += 1
 
     return rows_written

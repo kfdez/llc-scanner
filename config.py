@@ -156,6 +156,9 @@ _EBAY_DEFAULTS = {
     "ebay_category_id":        "183454",
     "ebay_store_category":     "0",
     "ebay_location":           "",
+    "ebay_postal_code":        "",       # required for eBay CSV
+    "ebay_package_weight":     "85",     # grams, typical for card in sleeve + toploader
+    "ebay_package_dims":       "15 x 10 x 0.5",  # length x width x height (cm)
     "ebay_dispatch_days":      "1",
     "ebay_best_offer_enabled": "1",
     "ebay_shipping_profile":   "",
